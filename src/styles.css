@@ -57,6 +57,25 @@
     border-color: color-mix(in srgb, var(--gray-border) 35%, white);
   }
 
+  .upload-shell-hero {
+    @apply grid min-h-[22rem] gap-6 rounded-[32px] border p-7 text-left text-white transition;
+    background:
+      radial-gradient(circle at top right, rgba(255,255,255,0.28), transparent 32%),
+      linear-gradient(145deg, color-mix(in srgb, var(--primary) 90%, white) 0%, color-mix(in srgb, var(--terciary) 94%, black) 100%);
+    border-color: color-mix(in srgb, var(--primary) 40%, white);
+    box-shadow: 0 28px 60px rgba(57, 52, 156, 0.24);
+  }
+
+  .upload-shell-hero:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 36px 72px rgba(57, 52, 156, 0.3);
+  }
+
+  .upload-shell-hero-badge {
+    @apply inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em];
+    background: rgba(255, 255, 255, 0.14);
+  }
+
   .cta-primary {
     @apply rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-white transition hover:bg-tertiary;
   }

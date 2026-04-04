@@ -22,6 +22,43 @@ export type ReceiptListItem = {
   total_amount: number | string;
 };
 
+export type ReceiptScanItemResponse = {
+  raw_name: string;
+  display_name: string;
+  quantity: number | string;
+  unit_price: number | string;
+  discount_amount: number | string;
+  total_price: number | string;
+  item_type: "PRODUCT" | "DISCOUNT";
+};
+
+export type ReceiptScanResponse = {
+  market_name: string;
+  receipt_date: string;
+  total_amount: number | string;
+  items: ReceiptScanItemResponse[];
+};
+
+export type ConfirmReceiptRequest = {
+  market_name: string;
+  receipt_date: string;
+  total_amount: number;
+  items: Array<{
+    product_name: string;
+    quantity: number;
+    unit_price: number;
+    discount_amount: number;
+    total_price: number;
+    item_type: "PRODUCT" | "DISCOUNT";
+  }>;
+};
+
+export type ConfirmReceiptResponse = {
+  message: string;
+  receipt_id: string;
+  items_processed: number;
+};
+
 export type InventoryItemResponse = {
   inventory_id: string;
   product: {
