@@ -22,7 +22,7 @@ export class ApiClientError extends Error {
   }
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api";
+const API_BASE_URL = import.meta.env.DESPENSA_APP_API_BASE_URL ?? "http://localhost:8000/api";
 const errorListeners = new Set<ErrorListener>();
 
 export function subscribeToApiErrors(listener: ErrorListener) {

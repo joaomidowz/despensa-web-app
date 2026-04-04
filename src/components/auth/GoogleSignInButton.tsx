@@ -31,7 +31,7 @@ const GOOGLE_SCRIPT_ID = "google-identity-services";
 export function GoogleSignInButton({ disabled = false, onCredential }: GoogleSignInButtonProps) {
   const buttonRef = useRef<HTMLDivElement | null>(null);
   const [isReady, setIsReady] = useState(false);
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const clientId = import.meta.env.DESPENSA_APP_GOOGLE_CLIENT_ID;
 
   useEffect(() => {
     if (!clientId || !buttonRef.current) return;
@@ -74,7 +74,7 @@ export function GoogleSignInButton({ disabled = false, onCredential }: GoogleSig
   if (!clientId) {
     return (
       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-        Defina `VITE_GOOGLE_CLIENT_ID` para ativar o login com Google.
+        Defina `DESPENSA_APP_GOOGLE_CLIENT_ID` para ativar o login com Google.
       </div>
     );
   }
