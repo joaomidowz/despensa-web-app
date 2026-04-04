@@ -1,0 +1,90 @@
+@import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Space+Grotesk:wght@500;700&family=Material+Symbols+Outlined:FILL@0;1&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #e8e8f9;
+  --foreground: #171717;
+  --primary: #524be0;
+  --secundary: #e8e8f9;
+  --terciary: #39349c;
+  --white: #ffffff;
+  --white-txt: #ffffff;
+  --color-gray-500: #6a7282;
+  --gray-border: #524be0;
+  --font-body: "Atkinson Hyperlegible", sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+}
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+
+  html {
+    font-family: var(--font-body);
+  }
+
+  body {
+    @apply m-0 bg-surface text-ink antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .input-shell {
+    @apply w-full rounded-2xl border bg-white px-4 py-3 text-sm text-ink outline-none transition placeholder:text-muted focus:ring-4;
+    border-color: color-mix(in srgb, var(--gray-border) 20%, white);
+    --tw-ring-color: color-mix(in srgb, var(--primary) 15%, white);
+  }
+
+  .upload-shell {
+    @apply grid min-h-52 place-items-center gap-3 rounded-[28px] border border-dashed bg-gradient-to-br from-white to-secondary p-6 text-center transition hover:shadow-panel;
+    border-color: color-mix(in srgb, var(--gray-border) 35%, white);
+  }
+
+  .cta-primary {
+    @apply rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-white transition hover:bg-tertiary;
+  }
+
+  .cta-secondary {
+    @apply rounded-2xl border bg-white px-5 py-3 text-sm font-semibold text-tertiary transition hover:bg-secondary;
+    border-color: color-mix(in srgb, var(--gray-border) 25%, white);
+  }
+
+  .item-title {
+    @apply border-none bg-transparent p-0 text-lg font-semibold text-ink outline-none;
+  }
+
+  .material-symbols-outlined {
+    font-variation-settings:
+      "FILL" 1,
+      "wght" 500,
+      "GRAD" 0,
+      "opsz" 24;
+    font-size: 22px;
+    line-height: 1;
+  }
+
+  .nav-link {
+    @apply rounded-full px-3 py-2 text-sm font-medium text-muted transition hover:bg-secondary hover:text-tertiary focus:outline-none focus:ring-2 focus:ring-primary;
+  }
+
+  .glass-panel {
+    @apply border border-white/50 bg-white/75 backdrop-blur;
+  }
+}
