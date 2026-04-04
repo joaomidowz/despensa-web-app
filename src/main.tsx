@@ -14,6 +14,7 @@ import { DashboardPage } from "./features/app/DashboardPage";
 import { ScanPage } from "./features/receipts/ScanPage";
 import { ReceiptHistoryPage } from "./features/receipts/ReceiptHistoryPage";
 import { InventoryPage } from "./features/inventory/InventoryPage";
+import { ShoppingListPage } from "./features/shopping-list/ShoppingListPage";
 import "./styles.css";
 
 const queryClient = new QueryClient({
@@ -46,6 +47,7 @@ const router = createBrowserRouter([
           { path: "scan", element: <ScanPage /> },
           { path: "receipts", element: <ReceiptHistoryPage /> },
           { path: "inventory", element: <InventoryPage /> },
+          { path: "shopping-list", element: <ShoppingListPage /> },
         ],
       },
     ],

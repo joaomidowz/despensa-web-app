@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../app/providers/AuthProvider";
+import { ReceiptCard } from "../../components/receipts/ReceiptCard";
 import { SectionCard } from "../../components/ui/SectionCard";
 import { apiClient } from "../../lib/api/apiClient";
 import { PaginatedReceiptsResponse } from "../../lib/api/contracts";
-import { formatCurrency, formatDateTime } from "../../lib/utils/formatters";
 
 export function ReceiptHistoryPage() {
   const { token } = useAuth();
@@ -38,20 +38,7 @@ export function ReceiptHistoryPage() {
       ) : receiptsQuery.data?.items.length ? (
         <section className="grid gap-4">
           {receiptsQuery.data.items.map((receipt) => (
-            <SectionCard key={receipt.receipt_id}>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-lg font-bold text-ink">{receipt.market_name}</p>
-                  <p className="mt-2 text-sm text-muted">{formatDateTime(receipt.receipt_date)}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-tertiary">
-                    Total
-                  </p>
-                  <p className="mt-2 text-xl font-bold">{formatCurrency(receipt.total_amount)}</p>
-                </div>
-              </div>
-            </SectionCard>
+            <ReceiptCard key={receipt.receipt_id} receipt={receipt} />
           ))}
         </section>
       ) : (

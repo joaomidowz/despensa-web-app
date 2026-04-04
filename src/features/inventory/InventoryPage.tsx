@@ -1,28 +1,80 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { useAuth } from "../../app/providers/AuthProvider";
+import { InventoryTableRow } from "../../components/inventory/InventoryTableRow";
+import { Button } from "../../components/ui/Button";
 import { SectionCard } from "../../components/ui/SectionCard";
 import { apiClient } from "../../lib/api/apiClient";
 import { InventoryItemResponse } from "../../lib/api/contracts";
-import { formatDateTime, formatDecimal } from "../../lib/utils/formatters";
+
+type InventoryTab = "in-stock" | "missing";
 
 export function InventoryPage() {
   const { token } = useAuth();
+  const [manageMode, setManageMode] = useState(false);
+  const [activeTab, setActiveTab] = useState<InventoryTab>("in-stock");
   const inventoryQuery = useQuery({
     queryKey: ["inventory", "list"],
     queryFn: () => apiClient<InventoryItemResponse[]>("/inventory", { token }),
     enabled: Boolean(token),
   });
+  const inventoryItems = inventoryQuery.data ?? [];
+  const inStockItems = inventoryItems.filter((item) => Number(item.current_qty) > 0);
+  const missingItems = inventoryItems.filter((item) => Number(item.current_qty) <= 0);
+  const visibleItems = activeTab === "in-stock" ? inStockItems : missingItems;
 
   return (
     <div className="grid gap-6">
       <SectionCard>
-        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-tertiary">
-          Inventario
-        </p>
-        <h1 className="mt-3 text-3xl font-bold">Estoque da casa</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-7 text-muted">
-          Estoque atual da household autenticada, com quantidade, minimo e status de reposicao.
-        </p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-tertiary">
+              Inventario
+            </p>
+            <h1 className="mt-3 text-3xl font-bold">Estoque da casa</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-muted">
+              Estoque atual da household autenticada, com quantidade, minimo e status de reposicao.
+            </p>
+          </div>
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:min-w-[22rem] sm:items-end">
+            <div className="grid w-full grid-cols-2 rounded-2xl bg-secondary p-1">
+              <Button
+                className="w-full rounded-xl"
+                disabled={inventoryQuery.isLoading}
+                isFullWidth
+                size="sm"
+                variant={activeTab === "in-stock" ? "primary" : "ghost"}
+                onClick={() => setActiveTab("in-stock")}
+              >
+                Em estoque ({inStockItems.length})
+              </Button>
+              <Button
+                className="w-full rounded-xl"
+                disabled={inventoryQuery.isLoading}
+                isFullWidth
+                size="sm"
+                variant={activeTab === "missing" ? "primary" : "ghost"}
+                onClick={() => setActiveTab("missing")}
+              >
+                Faltando ({missingItems.length})
+              </Button>
+            </div>
+            <Button
+              className="w-full"
+              disabled={inventoryQuery.isLoading || !visibleItems.length}
+              isFullWidth
+              leftIcon={
+                <span className="material-symbols-outlined" aria-hidden="true">
+                  {manageMode ? "close" : "edit"}
+                </span>
+              }
+              variant={manageMode ? "secondary" : "outline"}
+              onClick={() => setManageMode((current) => !current)}
+            >
+              {manageMode ? "Fechar edicao" : "Editar inventario"}
+            </Button>
+          </div>
+        </div>
       </SectionCard>
 
       {inventoryQuery.isLoading ? (
@@ -36,31 +88,56 @@ export function InventoryPage() {
             ))}
           </div>
         </SectionCard>
-      ) : inventoryQuery.data?.length ? (
-        <section className="grid gap-4">
-          {inventoryQuery.data.map((item) => (
-            <SectionCard key={item.inventory_id}>
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p className="text-lg font-bold text-ink">{item.product.name}</p>
-                  <p className="mt-1 text-sm text-muted">{item.product.category}</p>
-                </div>
-                <div className="grid gap-1 text-sm sm:text-right">
-                  <p className="font-semibold text-tertiary">{item.status}</p>
-                  <p className="text-muted">
-                    {formatDecimal(item.current_qty)} atual · min {formatDecimal(item.min_qty)}
-                  </p>
-                  <p className="text-muted">{formatDateTime(item.updated_at)}</p>
-                </div>
-              </div>
-            </SectionCard>
-          ))}
-        </section>
+      ) : visibleItems.length ? (
+        <SectionCard className="overflow-hidden p-0">
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-collapse">
+              <thead className="bg-secondary/70 text-left">
+                <tr>
+                  <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-muted">Produto</th>
+                  <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-muted">Categoria</th>
+                  {manageMode ? (
+                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-muted">Atual</th>
+                  ) : null}
+                  {!manageMode ? (
+                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-muted">Atual</th>
+                  ) : null}
+                  {!manageMode ? (
+                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-muted">Minimo</th>
+                  ) : null}
+                  {!manageMode ? (
+                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-muted">Status</th>
+                  ) : null}
+                  {!manageMode ? (
+                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-muted">Atualizado</th>
+                  ) : null}
+                  {manageMode ? (
+                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-muted">Acoes</th>
+                  ) : null}
+                </tr>
+              </thead>
+              <tbody>
+                {visibleItems.map((item) => (
+                  <InventoryTableRow
+                    key={item.inventory_id}
+                    disabled={inventoryQuery.isLoading}
+                    item={item}
+                    manageMode={manageMode}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
       ) : (
         <SectionCard>
-          <p className="text-lg font-bold">Inventario vazio por enquanto.</p>
+          <p className="text-lg font-bold">
+            {activeTab === "in-stock" ? "Nenhum item em estoque nesta aba." : "Nada faltando por enquanto."}
+          </p>
           <p className="mt-2 text-sm leading-7 text-muted">
-            Itens entram aqui depois da confirmacao do primeiro recibo ou de cadastro manual.
+            {activeTab === "in-stock"
+              ? "Os itens com quantidade acima de zero aparecem aqui."
+              : "Quando algum produto zerar, ele aparece aqui para reposicao e controle."}
           </p>
         </SectionCard>
       )}

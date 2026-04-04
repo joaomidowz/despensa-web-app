@@ -171,6 +171,7 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
             <MobileNavButton icon="scan" label="Escanear recibo" onClick={() => goTo("/app/scan")} />
             <MobileNavButton icon="receipt_long" label="Historico de compras" onClick={() => goTo("/app/receipts")} />
             <MobileNavButton icon="inventory_2" label="Inventario" onClick={() => goTo("/app/inventory")} />
+            <MobileNavButton icon="shopping_cart" label="Lista de compras" onClick={() => goTo("/app/shopping-list")} />
             <MobileNavButton icon="sell" label="Precos" onClick={() => goTo("/pricing")} />
           </nav>
 

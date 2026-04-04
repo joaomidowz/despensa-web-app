@@ -10,6 +10,7 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   leftIcon?: ReactNode;
   rightIcon?: ReactNode;
   isFullWidth?: boolean;
+  rendered?: boolean;
 };
 
 const variantClassMap: Record<ButtonVariant, string> = {
@@ -34,10 +35,13 @@ export function Button({
   isLoading = false,
   leftIcon,
   rightIcon,
+  rendered = true,
   size = "md",
   variant = "primary",
   ...props
 }: ButtonProps) {
+  if (!rendered) return null;
+
   return (
     <button
       className={[

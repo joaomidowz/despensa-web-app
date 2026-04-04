@@ -34,3 +34,50 @@ export type InventoryItemResponse = {
   status: string;
   updated_at: string;
 };
+
+export type UpdateInventoryItemRequest = {
+  product_name?: string;
+  category?: string;
+  current_qty?: number;
+  min_qty?: number;
+};
+
+export type ReceiptDetailResponse = {
+  receipt_id: string;
+  market_name: string;
+  receipt_date: string;
+  total_amount: number | string;
+  items: ReceiptDetailItem[];
+};
+
+export type ReceiptDetailItem = {
+  product_id?: string | null;
+  name: string;
+  category?: string | null;
+  quantity: number | string;
+  unit_price: number | string;
+  discount_amount: number | string;
+  total_price: number | string;
+  item_type: "PRODUCT" | "DISCOUNT";
+};
+
+export type UpdateReceiptRequest = {
+  market_name: string;
+  receipt_date: string;
+  total_amount: number;
+  items: Array<{
+    product_name: string;
+    quantity: number;
+    unit_price: number;
+    discount_amount: number;
+    total_price: number;
+    item_type: "PRODUCT" | "DISCOUNT";
+  }>;
+};
+
+export type ShoppingListCatalogItemResponse = {
+  name: string;
+  category?: string | null;
+  purchase_count: number;
+  last_purchased_at: string;
+};

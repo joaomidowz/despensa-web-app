@@ -26,6 +26,12 @@ const quickFlows = [
     to: "/app/inventory",
     icon: "inventory_2",
   },
+  {
+    title: "Lista de compras",
+    description: "Junte os itens sugeridos pelo sistema com itens adicionados manualmente.",
+    to: "/app/shopping-list",
+    icon: "shopping_cart",
+  },
 ];
 
 export function DashboardPage() {
@@ -89,7 +95,7 @@ export function DashboardPage() {
             ))}
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-3">
+      <section className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
         {quickFlows.map((flow) => (
           <SectionCard key={flow.title} className="flex h-full flex-col">
             <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
