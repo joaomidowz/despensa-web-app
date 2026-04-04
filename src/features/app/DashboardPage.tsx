@@ -1,13 +1,11 @@
 import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../app/providers/AuthProvider";
+import { apiClient } from "../../lib/api/apiClient";
+import { OverviewResponse } from "../../lib/api/contracts";
+import { formatCurrency, formatDecimal } from "../../lib/utils/formatters";
 import { Button } from "../../components/ui/Button";
 import { SectionCard } from "../../components/ui/SectionCard";
-
-const quickStats = [
-  { label: "Itens em estoque", value: "48" },
-  { label: "Compras do mes", value: "12" },
-  { label: "Reposicoes sugeridas", value: "7" },
-];
 
 const quickFlows = [
   {
@@ -31,7 +29,32 @@ const quickFlows = [
 ];
 
 export function DashboardPage() {
-  const { user } = useAuth();
+  const { token, user } = useAuth();
+  const overviewQuery = useQuery({
+    queryKey: ["overview"],
+    queryFn: () => apiClient<OverviewResponse>("/overview", { token }),
+    enabled: Boolean(token),
+  });
+
+  const stats = overviewQuery.data
+    ? [
+        {
+          label: "Itens em estoque",
+          value: String(overviewQuery.data.total_inventory_items),
+          helper: `${formatDecimal(overviewQuery.data.total_inventory_units)} unidades`,
+        },
+        {
+          label: "Compras do mes",
+          value: String(overviewQuery.data.month_receipts_count),
+          helper: formatCurrency(overviewQuery.data.month_receipts_total),
+        },
+        {
+          label: "Reposicoes sugeridas",
+          value: String(overviewQuery.data.suggested_restock_count),
+          helper: `${overviewQuery.data.low_stock_count} abaixo do minimo`,
+        },
+      ]
+    : [];
 
   return (
     <div className="grid gap-6">
@@ -49,12 +72,21 @@ export function DashboardPage() {
       </SectionCard>
 
       <section className="grid gap-4 sm:grid-cols-3">
-        {quickStats.map((stat) => (
-          <SectionCard key={stat.label}>
-            <p className="text-sm text-muted">{stat.label}</p>
-            <p className="mt-3 text-3xl font-bold">{stat.value}</p>
-          </SectionCard>
-        ))}
+        {overviewQuery.isLoading
+          ? Array.from({ length: 3 }).map((_, index) => (
+              <SectionCard key={index} className="animate-pulse">
+                <div className="h-4 w-24 rounded-full bg-secondary" />
+                <div className="mt-4 h-9 w-16 rounded-full bg-secondary" />
+                <div className="mt-4 h-4 w-28 rounded-full bg-secondary" />
+              </SectionCard>
+            ))
+          : stats.map((stat) => (
+              <SectionCard key={stat.label}>
+                <p className="text-sm text-muted">{stat.label}</p>
+                <p className="mt-3 text-3xl font-bold">{stat.value}</p>
+                <p className="mt-3 text-sm text-muted">{stat.helper}</p>
+              </SectionCard>
+            ))}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
