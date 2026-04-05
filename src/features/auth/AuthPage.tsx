@@ -6,6 +6,7 @@ import { GoogleSignInButton } from "../../components/auth/GoogleSignInButton";
 import { Button } from "../../components/ui/Button";
 import { SectionCard } from "../../components/ui/SectionCard";
 import { apiClient, ApiClientError } from "../../lib/api/apiClient";
+import { loadPendingInviteToken } from "../../lib/households/invite";
 
 type AuthResponse = {
   access_token: string;
@@ -25,6 +26,7 @@ export function AuthPage() {
   const { signIn } = useAuth();
   const { showToast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const pendingInviteToken = loadPendingInviteToken();
 
   async function handleGoogleCredential(googleIdToken: string) {
     setIsLoading(true);
@@ -94,6 +96,13 @@ export function AuthPage() {
               Tokens e headers de autenticacao ficarao centralizados no client. Componentes de tela
               nao vao carregar credenciais por conta propria.
             </div>
+
+            {pendingInviteToken ? (
+              <div className="rounded-2xl border border-primary/15 bg-primary/5 p-4 text-sm text-muted">
+                Um convite pendente foi detectado nesta sessao. Depois do login, o app vai levar
+                voce para concluir a entrada na household com o codigo <strong>{pendingInviteToken}</strong>.
+              </div>
+            ) : null}
           </div>
         </SectionCard>
       </div>

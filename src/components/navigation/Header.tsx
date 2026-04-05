@@ -114,24 +114,30 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
               <p className="text-sm font-semibold text-tertiary">{user.name}</p>
               <p className="text-xs text-muted">{user.email}</p>
             </div>
-            {user.avatar_url && !hasAvatarError ? (
-              <img
-                alt={`Avatar de ${user.name}`}
-                className="h-11 w-11 rounded-full object-cover shadow-lg shadow-primary/20"
-                src={user.avatar_url}
-                key={user.avatar_url}
-                loading="eager"
-                referrerPolicy="no-referrer"
-                onError={() => setHasAvatarError(true)}
-              />
-            ) : (
-              <div
-                aria-label="Perfil do usuario"
-                className="flex h-11 w-11 items-center justify-center rounded-full bg-primary font-bold text-white shadow-lg shadow-primary/25"
-              >
-                {displayInitial}
-              </div>
-            )}
+            <Link
+              aria-label="Abrir perfil"
+              className="rounded-full focus:outline-none focus:ring-2 focus:ring-primary"
+              to="/app/profile"
+            >
+              {user.avatar_url && !hasAvatarError ? (
+                <img
+                  alt={`Avatar de ${user.name}`}
+                  className="h-11 w-11 rounded-full object-cover shadow-lg shadow-primary/20"
+                  src={user.avatar_url}
+                  key={user.avatar_url}
+                  loading="eager"
+                  referrerPolicy="no-referrer"
+                  onError={() => setHasAvatarError(true)}
+                />
+              ) : (
+                <div
+                  aria-label="Perfil do usuario"
+                  className="flex h-11 w-11 items-center justify-center rounded-full bg-primary font-bold text-white shadow-lg shadow-primary/25"
+                >
+                  {displayInitial}
+                </div>
+              )}
+            </Link>
           </div>
         ) : (
           <div className="ml-auto h-11 w-11" aria-hidden="true" />
@@ -172,6 +178,7 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
             <MobileNavButton icon="receipt_long" label="Historico de compras" onClick={() => goTo("/app/receipts")} />
             <MobileNavButton icon="inventory_2" label="Inventario" onClick={() => goTo("/app/inventory")} />
             <MobileNavButton icon="shopping_cart" label="Lista de compras" onClick={() => goTo("/app/shopping-list")} />
+            <MobileNavButton icon="account_circle" label="Perfil" onClick={() => goTo("/app/profile")} />
             <MobileNavButton icon="sell" label="Precos" onClick={() => goTo("/pricing")} />
           </nav>
 

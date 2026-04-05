@@ -9,6 +9,11 @@ import {
   JoinHouseholdRequest,
   JoinHouseholdResponse,
 } from "../../lib/api/contracts";
+import {
+  clearPendingInviteToken,
+  loadPendingInviteToken,
+  normalizeInviteToken,
+} from "../../lib/households/invite";
 import { Button } from "../ui/Button";
 
 type GateMode = "create" | "join";
@@ -17,9 +22,10 @@ export function HouseholdRequiredGate() {
   const navigate = useNavigate();
   const { token, refreshUser, signOut, user } = useAuth();
   const { showToast } = useToast();
-  const [mode, setMode] = useState<GateMode>("create");
+  const initialPendingInvite = loadPendingInviteToken();
+  const [mode, setMode] = useState<GateMode>(initialPendingInvite ? "join" : "create");
   const [householdName, setHouseholdName] = useState("");
-  const [inviteToken, setInviteToken] = useState("");
+  const [inviteToken, setInviteToken] = useState(initialPendingInvite);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleCreateHousehold(event: FormEvent<HTMLFormElement>) {
@@ -34,6 +40,7 @@ export function HouseholdRequiredGate() {
         token,
         body: payload,
       });
+      clearPendingInviteToken();
       await refreshUser();
       showToast(`Casa "${response.name}" criada com sucesso.`, "success");
       navigate("/app", { replace: true });
@@ -52,12 +59,14 @@ export function HouseholdRequiredGate() {
 
     setIsSubmitting(true);
     try {
-      const payload: JoinHouseholdRequest = { invite_token: inviteToken.trim() };
+      const normalizedInviteToken = normalizeInviteToken(inviteToken);
+      const payload: JoinHouseholdRequest = { invite_token: normalizedInviteToken };
       const response = await apiClient<JoinHouseholdResponse>("/households/join", {
         method: "POST",
         token,
         body: payload,
       });
+      clearPendingInviteToken();
       await refreshUser();
       showToast(response.message || `Voce entrou em "${response.household_name}".`, "success");
       navigate("/app", { replace: true });
@@ -85,6 +94,11 @@ export function HouseholdRequiredGate() {
               Voce entrou com sucesso, mas ainda nao esta em nenhuma casa. Crie uma nova ou use um
               convite existente para liberar o restante do app.
             </p>
+            {initialPendingInvite ? (
+              <div className="mt-6 rounded-[24px] border border-white/15 bg-white/10 p-4 text-sm text-white/90">
+                Detectamos um convite pendente. Voce pode entrar direto usando o codigo abaixo ou o link que recebeu.
+              </div>
+            ) : null}
             <div className="mt-8 rounded-[24px] border border-white/15 bg-white/10 p-4 text-sm text-white/85">
               Enquanto isso nao for concluido, dashboard, estoque, compras e lista ficam bloqueados.
             </div>
@@ -146,14 +160,14 @@ export function HouseholdRequiredGate() {
               <form className="mt-6 space-y-5" onSubmit={handleJoinHousehold}>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-tertiary" htmlFor="invite-token">
-                    Token do convite
+                    Link ou token do convite
                   </label>
                   <input
                     autoCapitalize="off"
                     className="input-shell"
                     id="invite-token"
                     onChange={(event) => setInviteToken(event.target.value)}
-                    placeholder="Cole o token recebido"
+                    placeholder="Cole o link completo ou o codigo recebido"
                     required
                     value={inviteToken}
                   />
@@ -164,7 +178,7 @@ export function HouseholdRequiredGate() {
                   isLoading={isSubmitting}
                   size="lg"
                   type="submit"
-                  disabled={inviteToken.trim().length < 3}
+                  disabled={normalizeInviteToken(inviteToken).length < 3}
                 >
                   Entrar e continuar
                 </Button>

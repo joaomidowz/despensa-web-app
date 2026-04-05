@@ -138,3 +138,13 @@ export type JoinHouseholdResponse = {
   household_id: string;
   household_name: string;
 };
+
+export type GenerateInviteRequest = {
+  household_id: string;
+};
+
+export type GenerateInviteResponse = {
+  invite_token: string;
+  invite_url: string;
+  expires_at: string;
+};

@@ -10,7 +10,9 @@ import { ToastProvider } from "./app/providers/ToastProvider";
 import { HomePage } from "./features/marketing/HomePage";
 import { PricingPage } from "./features/marketing/PricingPage";
 import { AuthPage } from "./features/auth/AuthPage";
+import { InviteLandingPage } from "./features/auth/InviteLandingPage";
 import { DashboardPage } from "./features/app/DashboardPage";
+import { ProfilePage } from "./features/account/ProfilePage";
 import { ScanPage } from "./features/receipts/ScanPage";
 import { ReceiptHistoryPage } from "./features/receipts/ReceiptHistoryPage";
 import { InventoryPage } from "./features/inventory/InventoryPage";
@@ -34,6 +36,7 @@ const router = createBrowserRouter([
       { path: "/", element: <HomePage /> },
       { path: "/pricing", element: <PricingPage /> },
       { path: "/auth", element: <AuthPage /> },
+      { path: "/join/:inviteToken", element: <InviteLandingPage /> },
     ],
   },
   {
@@ -48,6 +51,7 @@ const router = createBrowserRouter([
           { path: "receipts", element: <ReceiptHistoryPage /> },
           { path: "inventory", element: <InventoryPage /> },
           { path: "shopping-list", element: <ShoppingListPage /> },
+          { path: "profile", element: <ProfilePage /> },
         ],
       },
     ],
