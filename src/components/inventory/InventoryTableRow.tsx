@@ -34,6 +34,7 @@ export function InventoryTableRow({
   if (!rendered) return null;
 
   const refreshRelatedData = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["shopping-list", "items"] });
     await queryClient.invalidateQueries({ queryKey: ["inventory", "shopping-list"] });
     await queryClient.invalidateQueries({ queryKey: ["overview"] });
   };
@@ -80,7 +81,7 @@ export function InventoryTableRow({
         return {
           ...currentItem,
           current_qty: nextQty,
-          status: nextQty < Number(currentItem.min_qty) ? "comprar" : nextQty === Number(currentItem.min_qty) ? "comprado" : "estoque",
+          status: nextQty <= Number(currentItem.min_qty) ? "Comprar" : "Em Estoque",
           updated_at: new Date().toISOString(),
         };
       });
@@ -112,7 +113,7 @@ export function InventoryTableRow({
         return {
           ...currentItem,
           current_qty: nextQty,
-          status: nextQty < Number(currentItem.min_qty) ? "comprar" : nextQty === Number(currentItem.min_qty) ? "comprado" : "estoque",
+          status: nextQty <= Number(currentItem.min_qty) ? "Comprar" : "Em Estoque",
           updated_at: new Date().toISOString(),
         };
       });
@@ -125,6 +126,22 @@ export function InventoryTableRow({
     onSuccess: async () => {
       await refreshRelatedData();
       showToast("Quantidade adicionada ao estoque.", "success");
+    },
+  });
+
+  const addToShoppingListMutation = useMutation({
+    mutationFn: () =>
+      apiClient("/shopping-list/items/from-inventory", {
+        method: "POST",
+        token,
+        body: {
+          inventory_id: item.inventory_id,
+          desired_qty: 1,
+        },
+      }),
+    onSuccess: async () => {
+      await refreshRelatedData();
+      showToast("Item enviado para a lista de compras.", "success");
     },
   });
 
@@ -206,57 +223,74 @@ export function InventoryTableRow({
       </td> : null}
       {!manageMode ? <td className="px-4 py-4 text-sm font-semibold text-tertiary">{item.status}</td> : null}
       {!manageMode ? <td className="px-4 py-4 text-sm text-muted">{formatDateTime(item.updated_at)}</td> : null}
-      {manageMode ? (
-        <td className="w-[1%] whitespace-nowrap px-3 py-4">
-          <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
-            {isEditing ? (
-              <>
-                <Button disabled={disabled} size="sm" variant="ghost" onClick={() => setIsEditing(false)}>
-                  Cancelar
-                </Button>
-                <Button disabled={disabled} isLoading={updateMutation.isPending} size="sm" onClick={save}>
-                  Salvar
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  aria-label="Consumir 1 unidade"
-                  className="h-10 min-h-10 min-w-10 px-0"
-                  disabled={disabled}
-                  isLoading={consumeMutation.isPending}
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => consumeMutation.mutate()}
-                >
-                  <span className="material-symbols-outlined text-[18px]">remove</span>
-                </Button>
-                <Button
-                  aria-label="Adicionar 1 unidade"
-                  className="h-10 min-h-10 min-w-10 px-0"
-                  disabled={disabled}
-                  isLoading={addMutation.isPending}
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => addMutation.mutate()}
-                >
-                  <span className="material-symbols-outlined text-[18px]">add</span>
-                </Button>
-                <Button
-                  aria-label="Editar produto"
-                  className="h-10 min-h-10 min-w-10 px-0"
-                  disabled={disabled}
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setIsEditing(true)}
-                >
-                  <span className="material-symbols-outlined text-[18px]">edit</span>
-                </Button>
-              </>
-            )}
-          </div>
-        </td>
-      ) : null}
+      <td className="w-[1%] whitespace-nowrap px-3 py-4">
+        <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+          {manageMode && isEditing ? (
+            <>
+              <Button disabled={disabled} size="sm" variant="ghost" onClick={() => setIsEditing(false)}>
+                Cancelar
+              </Button>
+              <Button disabled={disabled} isLoading={updateMutation.isPending} size="sm" onClick={save}>
+                Salvar
+              </Button>
+            </>
+          ) : (
+            <>
+              {manageMode ? (
+                <>
+                  <Button
+                    aria-label="Consumir 1 unidade"
+                    className="h-10 min-h-10 min-w-10 px-0"
+                    disabled={disabled}
+                    isLoading={consumeMutation.isPending}
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => consumeMutation.mutate()}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">remove</span>
+                  </Button>
+                  <Button
+                    aria-label="Adicionar 1 unidade"
+                    className="h-10 min-h-10 min-w-10 px-0"
+                    disabled={disabled}
+                    isLoading={addMutation.isPending}
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => addMutation.mutate()}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">add</span>
+                  </Button>
+                  <Button
+                    aria-label="Editar produto"
+                    className="h-10 min-h-10 min-w-10 px-0"
+                    disabled={disabled}
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setIsEditing(true)}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">edit</span>
+                  </Button>
+                </>
+              ) : null}
+              <Button
+                aria-label="Adicionar item a lista de compras"
+                className={manageMode ? "h-10 min-h-10 min-w-10 px-0" : ""}
+                disabled={disabled}
+                isLoading={addToShoppingListMutation.isPending}
+                size="sm"
+                variant={Number(item.current_qty) <= Number(item.min_qty) ? "primary" : "outline"}
+                onClick={() => addToShoppingListMutation.mutate()}
+              >
+                {manageMode ? (
+                  <span className="material-symbols-outlined text-[18px]">playlist_add</span>
+                ) : (
+                  "Adicionar a lista"
+                )}
+              </Button>
+            </>
+          )}
+        </div>
+      </td>
     </tr>
   );
 }
