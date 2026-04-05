@@ -1,8 +1,9 @@
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../../app/providers/AuthProvider";
+import { HouseholdRequiredGate } from "./HouseholdRequiredGate";
 
 export function ProtectedRoute() {
-  const { isAuthenticated, isBootstrapping } = useAuth();
+  const { isAuthenticated, isBootstrapping, user } = useAuth();
   if (isBootstrapping) {
     return (
       <div className="grid min-h-screen place-items-center bg-surface px-4">
@@ -17,6 +18,9 @@ export function ProtectedRoute() {
   }
   if (!isAuthenticated) {
     return <Navigate replace to="/auth" />;
+  }
+  if (user && !user.household_id) {
+    return <HouseholdRequiredGate />;
   }
   return <Outlet />;
 }

@@ -118,3 +118,23 @@ export type ShoppingListCatalogItemResponse = {
   purchase_count: number;
   last_purchased_at: string;
 };
+
+export type HouseholdResponse = {
+  household_id: string;
+  name: string;
+  owner_id: string;
+};
+
+export type CreateHouseholdRequest = {
+  name: string;
+};
+
+export type JoinHouseholdRequest = {
+  invite_token: string;
+};
+
+export type JoinHouseholdResponse = {
+  message: string;
+  household_id: string;
+  household_name: string;
+};
