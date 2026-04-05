@@ -148,3 +148,13 @@ export type GenerateInviteResponse = {
   invite_url: string;
   expires_at: string;
 };
+
+export type CurrentHouseholdResponse = {
+  household_id: string;
+  name: string;
+  owner_id: string;
+  members: Array<{
+    user_id: string;
+    name: string;
+  }>;
+};
