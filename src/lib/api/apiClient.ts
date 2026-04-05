@@ -65,5 +65,9 @@ export async function apiClient<T>(path: string, options: RequestOptions = {}): 
     throw error;
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return (await response.json()) as T;
 }

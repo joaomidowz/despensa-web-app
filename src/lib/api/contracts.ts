@@ -43,6 +43,7 @@ export type ConfirmReceiptRequest = {
   market_name: string;
   receipt_date: string;
   total_amount: number;
+  matched_shopping_list_item_ids?: string[];
   items: Array<{
     product_name: string;
     quantity: number;
@@ -57,6 +58,25 @@ export type ConfirmReceiptResponse = {
   message: string;
   receipt_id: string;
   items_processed: number;
+  matched_shopping_list_item_ids?: string[];
+};
+
+export type ReconcileShoppingListRequest = {
+  shopping_list_item_ids: string[];
+  items: ConfirmReceiptRequest["items"];
+};
+
+export type ReconciledShoppingListMatchResponse = {
+  shopping_list_item_id: string;
+  shopping_list_name: string;
+  receipt_product_name: string;
+  score: number | string;
+};
+
+export type ReconcileShoppingListResponse = {
+  matches: ReconciledShoppingListMatchResponse[];
+  unmatched_shopping_list_item_ids: string[];
+  unmatched_receipt_product_names: string[];
 };
 
 export type InventoryItemResponse = {
@@ -70,6 +90,13 @@ export type InventoryItemResponse = {
   min_qty: number | string;
   status: string;
   updated_at: string;
+};
+
+export type CreateInventoryItemRequest = {
+  product_name: string;
+  category: string;
+  current_qty: number;
+  min_qty: number;
 };
 
 export type UpdateInventoryItemRequest = {
@@ -117,6 +144,37 @@ export type ShoppingListCatalogItemResponse = {
   category?: string | null;
   purchase_count: number;
   last_purchased_at: string;
+};
+
+export type ShoppingListItemSource = "MANUAL" | "INVENTORY" | "SYSTEM" | "HISTORY" | "TEMPLATE";
+
+export type ShoppingListItemResponse = {
+  shopping_list_item_id: string;
+  product_id?: string | null;
+  inventory_id?: string | null;
+  source: ShoppingListItemSource;
+  name: string;
+  category?: string | null;
+  notes?: string | null;
+  desired_qty: number | string;
+  checked: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateShoppingListItemRequest = {
+  name: string;
+  category?: string | null;
+  notes?: string | null;
+  desired_qty?: number;
+};
+
+export type UpdateShoppingListItemRequest = {
+  name?: string;
+  category?: string | null;
+  notes?: string | null;
+  desired_qty?: number;
+  checked?: boolean;
 };
 
 export type HouseholdResponse = {

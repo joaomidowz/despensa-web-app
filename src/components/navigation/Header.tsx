@@ -65,16 +65,32 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
       <div className="mx-auto grid max-w-6xl grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           {shouldShowLeftButton ? (
-            <button
-              aria-label={shouldShowMenu ? "Abrir menu" : "Voltar"}
-              className="flex h-11 w-11 items-center justify-center rounded-full border border-border/15 bg-secondary text-tertiary focus:outline-none focus:ring-2 focus:ring-primary"
-              type="button"
-              onClick={handleLeftAction}
-            >
-              <span className="material-symbols-outlined" aria-hidden="true">
-                {shouldShowMenu ? "menu" : "arrow_back"}
-              </span>
-            </button>
+            shouldShowMenu ? (
+              <>
+                <button
+                  aria-label="Abrir menu"
+                  className="flex h-11 w-11 items-center justify-center rounded-full border border-border/15 bg-secondary text-tertiary focus:outline-none focus:ring-2 focus:ring-primary sm:hidden"
+                  type="button"
+                  onClick={handleLeftAction}
+                >
+                  <span className="material-symbols-outlined" aria-hidden="true">
+                    menu
+                  </span>
+                </button>
+                <div className="hidden h-11 w-11 sm:block" aria-hidden="true" />
+              </>
+            ) : (
+              <button
+                aria-label="Voltar"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-border/15 bg-secondary text-tertiary focus:outline-none focus:ring-2 focus:ring-primary"
+                type="button"
+                onClick={handleLeftAction}
+              >
+                <span className="material-symbols-outlined" aria-hidden="true">
+                  arrow_back
+                </span>
+              </button>
+            )
           ) : (
             <div className="h-11 w-11" aria-hidden="true" />
           )}
