@@ -46,8 +46,8 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
     navigate("/");
   }
 
-  function handleSignOut() {
-    signOut();
+  async function handleSignOut() {
+    await signOut();
     setIsMenuOpen(false);
     navigate("/auth");
   }
@@ -111,7 +111,7 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
               <NavLink className="nav-link" to="/app">
                 App
               </NavLink>
-              <button className="nav-link" type="button" onClick={handleSignOut}>
+              <button className="nav-link" type="button" onClick={() => void handleSignOut()}>
                 Sair
               </button>
             </>
@@ -201,7 +201,7 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
           <button
             className="mt-auto flex min-h-12 items-center justify-center rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-white"
             type="button"
-            onClick={handleSignOut}
+            onClick={() => void handleSignOut()}
           >
             Sair
           </button>

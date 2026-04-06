@@ -189,7 +189,7 @@ export function HouseholdRequiredGate() {
               Nao quer continuar agora?
               <button
                 className="ml-2 font-semibold text-tertiary underline underline-offset-4"
-                onClick={signOut}
+                onClick={() => void signOut()}
                 type="button"
               >
                 Sair da conta

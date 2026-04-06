@@ -14,7 +14,7 @@ type AuthContextValue = {
   token: string | null;
   user: AuthUser | null;
   signIn: (token: string, user: AuthUser) => void;
-  signOut: () => void;
+  signOut: (options?: { skipRequest?: boolean }) => Promise<void>;
   refreshUser: () => Promise<void>;
   isAuthenticated: boolean;
   isBootstrapping: boolean;
@@ -37,6 +37,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(stored.user);
   }, []);
 
+  function clearAuthState() {
+    setToken(null);
+    setUser(null);
+    clearStoredAuth();
+  }
+
   async function refreshUserWithToken(activeToken: string) {
     const me = await apiClient<AuthUser>("/auth/me", {
       method: "GET",
@@ -57,9 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch((error) => {
         if (!isMounted) return;
         if (error instanceof ApiClientError && error.status === 401) {
-          setToken(null);
-          setUser(null);
-          clearStoredAuth();
+          clearAuthState();
         }
       })
       .finally(() => {
@@ -80,10 +84,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(nextUser);
         saveStoredAuth({ token: nextToken, user: nextUser });
       },
-      signOut: () => {
-        setToken(null);
-        setUser(null);
-        clearStoredAuth();
+      signOut: async (options) => {
+        if (token && !options?.skipRequest) {
+          try {
+            await apiClient<void>("/auth/logout", {
+              method: "POST",
+              token,
+            });
+          } catch {
+            // The local session still needs to be cleared even if logout fails remotely.
+          }
+        }
+        clearAuthState();
       },
       refreshUser: async () => {
         if (!token) return;
