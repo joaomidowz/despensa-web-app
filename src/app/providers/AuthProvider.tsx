@@ -1,4 +1,5 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { apiClient, ApiClientError } from "../../lib/api/apiClient";
 import { clearStoredAuth, loadStoredAuth, saveStoredAuth } from "../../lib/auth/storage";
 
@@ -23,6 +24,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
@@ -38,6 +40,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   function clearAuthState() {
+    // Auth transitions must drop cached household-scoped data to avoid stale IDs leaking between sessions.
+    queryClient.clear();
     setToken(null);
     setUser(null);
     clearStoredAuth();
@@ -80,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       token,
       user,
       signIn: (nextToken, nextUser) => {
+        queryClient.clear();
         setToken(nextToken);
         setUser(nextUser);
         saveStoredAuth({ token: nextToken, user: nextUser });
@@ -104,7 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: Boolean(token),
       isBootstrapping,
     }),
-    [isBootstrapping, token, user],
+    [isBootstrapping, queryClient, token, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
