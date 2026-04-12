@@ -22,6 +22,11 @@ export type ReceiptListItem = {
   total_amount: number | string;
 };
 
+export type DeleteReceiptResponse = {
+  message: string;
+  receipt_id: string;
+};
+
 export type ReceiptScanItemResponse = {
   raw_name: string;
   display_name: string;
@@ -144,6 +149,7 @@ export type ShoppingListCatalogItemResponse = {
   category?: string | null;
   purchase_count: number;
   last_purchased_at: string;
+  last_unit_price?: number | string | null;
 };
 
 export type ShoppingListItemSource = "MANUAL" | "INVENTORY" | "SYSTEM" | "HISTORY" | "TEMPLATE";
@@ -157,6 +163,7 @@ export type ShoppingListItemResponse = {
   category?: string | null;
   notes?: string | null;
   desired_qty: number | string;
+  estimated_unit_price?: number | string | null;
   checked: boolean;
   created_at: string;
   updated_at: string;
@@ -167,6 +174,7 @@ export type CreateShoppingListItemRequest = {
   category?: string | null;
   notes?: string | null;
   desired_qty?: number;
+  estimated_unit_price?: number | null;
 };
 
 export type UpdateShoppingListItemRequest = {
@@ -174,6 +182,7 @@ export type UpdateShoppingListItemRequest = {
   category?: string | null;
   notes?: string | null;
   desired_qty?: number;
+  estimated_unit_price?: number | null;
   checked?: boolean;
 };
 
@@ -214,5 +223,6 @@ export type CurrentHouseholdResponse = {
   members: Array<{
     user_id: string;
     name: string;
+    role: "OWNER" | "MEMBER";
   }>;
 };

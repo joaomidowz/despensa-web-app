@@ -15,7 +15,7 @@ type CopyTarget = "link" | "code" | null;
 
 const planLabels = [
   "Plano atual: Casa Essencial",
-  "Convidados ativos: ate 1 convite por vez",
+  "Papel inicial: Owner e Member ja mapeados",
   "Expansao futura: planos e limites reais entram depois",
 ];
 
@@ -141,7 +141,7 @@ export function ProfilePage() {
             </p>
             <p className="mt-2 text-sm text-muted">
               {household
-                ? `${household.members.length} membro(s) vinculado(s) nesta casa.`
+                ? `${household.members.length} membro(s) vinculado(s) nesta casa. Owner e Member ja aparecem separados.`
                 : "Os detalhes da casa aparecem assim que a API responder."}
             </p>
           </div>
@@ -157,7 +157,7 @@ export function ProfilePage() {
                   >
                     <p className="text-sm font-semibold text-ink">{member.name}</p>
                     <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                      {member.user_id === household.owner_id ? "Owner" : "Membro"}
+                      {member.role === "OWNER" ? "Owner" : "Membro"}
                     </span>
                   </div>
                 ))

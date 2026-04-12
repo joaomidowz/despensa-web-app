@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { ConfirmReceiptRequest, ReceiptScanResponse } from "../../lib/api/contracts";
 import { formatCurrency } from "../../lib/utils/formatters";
 import { Button } from "../ui/Button";
@@ -27,19 +28,55 @@ function recalcItem(item: ConfirmReceiptRequest["items"][number]) {
   };
 }
 
+function normalizeScannedItem(item: ReceiptScanResponse["items"][number]) {
+  const quantity = Number(item.quantity);
+  const unitPrice = Number(item.unit_price);
+  const discountAmount = Number(item.discount_amount);
+  const totalPrice = Number(item.total_price);
+
+  if (item.item_type !== "PRODUCT") {
+    return {
+      product_name: item.display_name || item.raw_name,
+      quantity,
+      unit_price: unitPrice,
+      discount_amount: discountAmount,
+      total_price: totalPrice,
+      item_type: item.item_type,
+    } as const;
+  }
+
+  const isFractionalQuantity = Math.abs(quantity - Math.round(quantity)) > 0.001;
+  if (!isFractionalQuantity) {
+    return {
+      product_name: item.display_name || item.raw_name,
+      quantity,
+      unit_price: unitPrice,
+      discount_amount: discountAmount,
+      total_price: totalPrice,
+      item_type: item.item_type,
+    } as const;
+  }
+
+  return {
+    product_name: item.display_name || item.raw_name,
+    quantity: 1,
+    unit_price: totalPrice,
+    discount_amount: 0,
+    total_price: totalPrice,
+    item_type: item.item_type,
+  } as const;
+}
+
+function itemFieldKey(index: number, field: "quantity" | "unit_price" | "discount_amount") {
+  return `${index}:${field}`;
+}
+
 export function buildConfirmReceiptDraft(scan: ReceiptScanResponse): ConfirmReceiptRequest {
   return {
     market_name: scan.market_name,
     receipt_date: scan.receipt_date,
     total_amount: Number(scan.total_amount),
-    items: scan.items.map((item) => ({
-      product_name: item.display_name || item.raw_name,
-      quantity: Number(item.quantity),
-      unit_price: Number(item.unit_price),
-      discount_amount: Number(item.discount_amount),
-      total_price: Number(item.total_price),
-      item_type: item.item_type,
-    })),
+    items: scan.items.map(normalizeScannedItem),
   };
 }
 
@@ -53,6 +90,22 @@ export function ReceiptScanEditor({
   onSubmit,
   onReset,
 }: ReceiptScanEditorProps) {
+  const [itemInputs, setItemInputs] = useState<Record<string, string>>({});
+  const [totalInput, setTotalInput] = useState(String(draft.total_amount));
+
+  useEffect(() => {
+    setItemInputs(
+      Object.fromEntries(
+        draft.items.flatMap((item, index) => [
+          [itemFieldKey(index, "quantity"), String(item.quantity)],
+          [itemFieldKey(index, "unit_price"), String(item.unit_price)],
+          [itemFieldKey(index, "discount_amount"), String(item.discount_amount)],
+        ]),
+      ),
+    );
+    setTotalInput(String(draft.total_amount));
+  }, [draft]);
+
   if (!rendered) return null;
 
   const calculatedTotal = draft.items.reduce((sum, item) => sum + Number(item.total_price), 0);
@@ -89,6 +142,30 @@ export function ReceiptScanEditor({
         },
       ],
     });
+  }
+
+  function updateNumericInput(
+    index: number,
+    field: "quantity" | "unit_price" | "discount_amount",
+    value: string,
+  ) {
+    setItemInputs((current) => ({
+      ...current,
+      [itemFieldKey(index, field)]: value,
+    }));
+  }
+
+  function commitNumericInput(
+    index: number,
+    field: "quantity" | "unit_price" | "discount_amount",
+  ) {
+    const raw = itemInputs[itemFieldKey(index, field)] ?? "";
+    updateItem(index, (current) =>
+      recalcItem({
+        ...current,
+        [field]: toNumber(raw),
+      }),
+    );
   }
 
   return (
@@ -178,12 +255,9 @@ export function ReceiptScanEditor({
                         className="input-shell rounded-xl px-2 py-2 text-center text-xs sm:text-sm"
                         disabled={disabled}
                         inputMode="decimal"
-                        value={String(item.quantity)}
-                        onChange={(event) =>
-                          updateItem(index, (current) =>
-                            recalcItem({ ...current, quantity: toNumber(event.target.value) }),
-                          )
-                        }
+                        value={itemInputs[itemFieldKey(index, "quantity")] ?? String(item.quantity)}
+                        onBlur={() => commitNumericInput(index, "quantity")}
+                        onChange={(event) => updateNumericInput(index, "quantity", event.target.value)}
                       />
                   </td>
                   <td className="w-[5.25rem] px-2 py-2 sm:w-[6rem] sm:px-3 sm:py-3">
@@ -191,12 +265,9 @@ export function ReceiptScanEditor({
                         className="input-shell rounded-xl px-2 py-2 text-center text-xs sm:text-sm"
                         disabled={disabled}
                         inputMode="decimal"
-                        value={String(item.unit_price)}
-                        onChange={(event) =>
-                          updateItem(index, (current) =>
-                            recalcItem({ ...current, unit_price: toNumber(event.target.value) }),
-                          )
-                        }
+                        value={itemInputs[itemFieldKey(index, "unit_price")] ?? String(item.unit_price)}
+                        onBlur={() => commitNumericInput(index, "unit_price")}
+                        onChange={(event) => updateNumericInput(index, "unit_price", event.target.value)}
                       />
                   </td>
                   <td className="w-[5.25rem] px-2 py-2 sm:w-[6rem] sm:px-3 sm:py-3">
@@ -204,11 +275,10 @@ export function ReceiptScanEditor({
                         className="input-shell rounded-xl px-2 py-2 text-center text-xs sm:text-sm"
                         disabled={disabled}
                         inputMode="decimal"
-                        value={String(item.discount_amount)}
+                        value={itemInputs[itemFieldKey(index, "discount_amount")] ?? String(item.discount_amount)}
+                        onBlur={() => commitNumericInput(index, "discount_amount")}
                         onChange={(event) =>
-                          updateItem(index, (current) =>
-                            recalcItem({ ...current, discount_amount: toNumber(event.target.value) }),
-                          )
+                          updateNumericInput(index, "discount_amount", event.target.value)
                         }
                       />
                   </td>
@@ -245,8 +315,9 @@ export function ReceiptScanEditor({
               className="input-shell mt-2"
               disabled={disabled}
               inputMode="decimal"
-              value={String(draft.total_amount)}
-              onChange={(event) => onChange({ ...draft, total_amount: toNumber(event.target.value) })}
+              value={totalInput}
+              onBlur={() => onChange({ ...draft, total_amount: toNumber(totalInput) })}
+              onChange={(event) => setTotalInput(event.target.value)}
             />
           </div>
           <div className="rounded-3xl bg-secondary/70 p-4">

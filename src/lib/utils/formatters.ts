@@ -14,6 +14,10 @@ export function formatDecimal(value: number | string) {
   }).format(Number.isFinite(parsed) ? parsed : 0);
 }
 
+export function formatQuantity(value: number | string) {
+  return formatDecimal(value);
+}
+
 export function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",

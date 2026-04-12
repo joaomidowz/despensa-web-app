@@ -12,7 +12,7 @@ export function SectionCard({
   if (!rendered) return null;
 
   return (
-    <section className={`rounded-[28px] border border-border/15 bg-card p-6 shadow-panel ${className}`}>
+    <section className={`rounded-[28px] bg-card p-6 shadow-panel ${className}`}>
       {children}
     </section>
   );
