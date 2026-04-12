@@ -5,7 +5,7 @@
 @tailwind utilities;
 
 :root {
-  --background: #e8e8f9;
+  --background: #eef1fb;
   --foreground: #171717;
   --primary: #524be0;
   --secundary: #e8e8f9;
@@ -16,6 +16,18 @@
   --gray-border: #524be0;
   --font-body: "Atkinson Hyperlegible", sans-serif;
   --font-display: "Space Grotesk", sans-serif;
+}
+
+:root[data-theme="dark"] {
+  --background: #0b1020;
+  --foreground: #f4f7fb;
+  --primary: #8da2ff;
+  --secundary: #141b2d;
+  --terciary: #c7d2ff;
+  --white: #12192b;
+  --white-txt: #f4f7fb;
+  --color-gray-500: #9ca8c5;
+  --gray-border: #33415f;
 }
 
 @layer base {
@@ -29,6 +41,7 @@
 
   body {
     @apply m-0 bg-surface text-ink antialiased;
+    transition: background-color 180ms ease, color 180ms ease;
   }
 
   h1,
@@ -42,6 +55,20 @@
   input,
   textarea {
     font: inherit;
+  }
+
+  body,
+  input,
+  textarea,
+  select {
+    color-scheme: light;
+  }
+
+  :root[data-theme="dark"] body,
+  :root[data-theme="dark"] input,
+  :root[data-theme="dark"] textarea,
+  :root[data-theme="dark"] select {
+    color-scheme: dark;
   }
 }
 
@@ -105,5 +132,44 @@
 
   .glass-panel {
     @apply border border-white/50 bg-white/75 backdrop-blur;
+  }
+}
+
+@layer base {
+  :root[data-theme="dark"] .bg-white {
+    background-color: #182033 !important;
+  }
+
+  :root[data-theme="dark"] .bg-white\/75 {
+    background-color: rgba(24, 32, 51, 0.75) !important;
+  }
+
+  :root[data-theme="dark"] .bg-white\/85 {
+    background-color: rgba(18, 25, 43, 0.85) !important;
+  }
+
+  :root[data-theme="dark"] .text-white {
+    color: #f4f7fb !important;
+  }
+
+  :root[data-theme="dark"] .border-white\/15 {
+    border-color: rgba(199, 210, 255, 0.18) !important;
+  }
+
+  :root[data-theme="dark"] .border-white\/50 {
+    border-color: rgba(199, 210, 255, 0.28) !important;
+  }
+
+  :root[data-theme="dark"] .input-shell {
+    background-color: rgba(11, 16, 32, 0.42) !important;
+    border-color: rgba(141, 162, 255, 0.18) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  :root[data-theme="dark"] .input-shell:focus {
+    border-color: rgba(141, 162, 255, 0.38) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 0 0 4px rgba(141, 162, 255, 0.10) !important;
   }
 }

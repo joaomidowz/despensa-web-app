@@ -2,8 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { useToast } from "../../app/providers/ToastProvider";
-import { Button } from "../../components/ui/Button";
+import { ManualCheckoutPanel } from "../../components/carrinho/ManualCheckoutPanel";
+import { PasteListImporter } from "../../components/carrinho/PasteListImporter";
+import { ShoppingListItemCard } from "../../components/carrinho/ShoppingListItemCard";
+import { ShoppingModeEditor } from "../../components/carrinho/ShoppingModeEditor";
+import {
+  DraftState,
+  ManualCheckoutItem,
+  ParsedShoppingListItem,
+  buildDraftFromItem,
+  getEstimatedLineTotal,
+  toNumber,
+} from "../../components/carrinho/types";
 import { ShoppingListScanCheckout } from "../../components/receipts/ShoppingListScanCheckout";
+import { Button } from "../../components/ui/Button";
+import { ConfirmModal } from "../../components/ui/ConfirmModal";
 import { SectionCard } from "../../components/ui/SectionCard";
 import { apiClient } from "../../lib/api/apiClient";
 import {
@@ -15,39 +28,12 @@ import {
   ShoppingListItemResponse,
   UpdateShoppingListItemRequest,
 } from "../../lib/api/contracts";
-import { formatDateTime } from "../../lib/utils/formatters";
 import { clearPendingShoppingPurchase } from "../../lib/shopping-list/purchaseSession";
-
-type DraftState = {
-  name: string;
-  notes: string;
-  desiredQty: string;
-};
+import { formatCurrency, formatDateTime, formatQuantity } from "../../lib/utils/formatters";
 
 type CheckoutChoice = "manual" | "scan" | null;
 
-type ManualCheckoutItem = {
-  shopping_list_item_id: string;
-  product_name: string;
-  quantity: string;
-  unit_price: string;
-};
-
-const sourceLabelMap: Record<ShoppingListItemResponse["source"], string> = {
-  MANUAL: "Manual",
-  INVENTORY: "Inventario",
-  SYSTEM: "Sistema",
-  HISTORY: "Historico",
-  TEMPLATE: "Template",
-};
-
-function toNumber(value: string) {
-  return Number(value.replace(",", "."));
-}
-
-function formatQuantity(value: number | string) {
-  return String(value).replace(/\.0+$/, "");
-}
+type DraftMap = Record<string, DraftState>;
 
 function formatDateTimeInput(date: Date) {
   const year = date.getFullYear();
@@ -58,15 +44,54 @@ function formatDateTimeInput(date: Date) {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
-function normalizeDraftPayload(draft: DraftState): CreateShoppingListItemRequest | null {
+function buildDraftPayload(
+  draft: DraftState,
+): CreateShoppingListItemRequest | null {
   const name = draft.name.trim();
-  const desiredQty = toNumber(draft.desiredQty);
+  const desiredQty = draft.desiredQty.trim() ? toNumber(draft.desiredQty) : 1;
+  const estimatedUnitPrice = draft.estimatedUnitPrice.trim()
+    ? toNumber(draft.estimatedUnitPrice)
+    : null;
+
   if (!name || Number.isNaN(desiredQty) || desiredQty <= 0) return null;
+  if (estimatedUnitPrice !== null && (Number.isNaN(estimatedUnitPrice) || estimatedUnitPrice < 0)) {
+    return null;
+  }
 
   return {
     name,
+    category: draft.category.trim() || null,
     notes: draft.notes.trim() || null,
     desired_qty: desiredQty,
+    estimated_unit_price: estimatedUnitPrice,
+  };
+}
+
+function draftsMatch(left: DraftState, right: DraftState) {
+  return (
+    left.name === right.name &&
+    left.category === right.category &&
+    left.notes === right.notes &&
+    left.desiredQty === right.desiredQty &&
+    left.estimatedUnitPrice === right.estimatedUnitPrice
+  );
+}
+
+function mergeItemWithDraft(
+  item: ShoppingListItemResponse,
+  draft: DraftState | undefined,
+  checked: boolean,
+): ShoppingListItemResponse {
+  if (!draft) return { ...item, checked };
+
+  return {
+    ...item,
+    name: draft.name,
+    category: draft.category || null,
+    notes: draft.notes || null,
+    desired_qty: draft.desiredQty,
+    estimated_unit_price: draft.estimatedUnitPrice || null,
+    checked,
   };
 }
 
@@ -79,16 +104,25 @@ export function ShoppingListPage() {
   const [checkoutChoice, setCheckoutChoice] = useState<CheckoutChoice>(null);
   const [newItem, setNewItem] = useState<DraftState>({
     name: "",
+    category: "",
     notes: "",
     desiredQty: "1",
+    estimatedUnitPrice: "",
   });
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [pendingItemIds, setPendingItemIds] = useState<string[]>([]);
   const [editingDraft, setEditingDraft] = useState<DraftState>({
     name: "",
+    category: "",
     notes: "",
     desiredQty: "1",
+    estimatedUnitPrice: "",
   });
+  const [pendingItemIds, setPendingItemIds] = useState<string[]>([]);
+  const [isSavingShoppingMode, setIsSavingShoppingMode] = useState(false);
+  const [shoppingModeDrafts, setShoppingModeDrafts] = useState<DraftMap>({});
+  const [shoppingModeCheckedIds, setShoppingModeCheckedIds] = useState<string[]>([]);
+  const [showShoppingPriceField, setShowShoppingPriceField] = useState(true);
+  const [isClearListModalOpen, setIsClearListModalOpen] = useState(false);
   const [manualCheckout, setManualCheckout] = useState({
     market_name: "",
     receipt_date: formatDateTimeInput(new Date()),
@@ -113,25 +147,66 @@ export function ShoppingListPage() {
     enabled: Boolean(token),
   });
 
-  const suggestedItems = useMemo(
+  useEffect(() => {
+    if (!isShoppingMode) return;
+
+    const items = shoppingListQuery.data ?? [];
+    setShoppingModeDrafts(
+      Object.fromEntries(items.map((item) => [item.shopping_list_item_id, buildDraftFromItem(item)])),
+    );
+    setShoppingModeCheckedIds(
+      items.filter((item) => item.checked).map((item) => item.shopping_list_item_id),
+    );
+  }, [isShoppingMode, shoppingListQuery.data]);
+
+  const shoppingModeItems = useMemo(
     () =>
-      (suggestedQuery.data ?? []).map((item) => ({
-        id: item.inventory_id,
-        name: item.product.name,
-        subtitle: `Atual ${item.current_qty} · minimo ${item.min_qty}`,
-      })),
-    [suggestedQuery.data],
+      (shoppingListQuery.data ?? []).map((item) =>
+        mergeItemWithDraft(
+          item,
+          shoppingModeDrafts[item.shopping_list_item_id],
+          shoppingModeCheckedIds.includes(item.shopping_list_item_id),
+        ),
+      ),
+    [shoppingListQuery.data, shoppingModeDrafts, shoppingModeCheckedIds],
   );
 
+  const visibleItems = isShoppingMode ? shoppingModeItems : shoppingListQuery.data ?? [];
+
   const activeItems = useMemo(
-    () => (shoppingListQuery.data ?? []).filter((item) => !item.checked),
-    [shoppingListQuery.data],
+    () => visibleItems.filter((item) => !item.checked),
+    [visibleItems],
   );
 
   const checkedItems = useMemo(
-    () => (shoppingListQuery.data ?? []).filter((item) => item.checked),
-    [shoppingListQuery.data],
+    () => visibleItems.filter((item) => item.checked),
+    [visibleItems],
   );
+
+  const activeEstimatedTotal = useMemo(
+    () => activeItems.reduce((sum, item) => sum + (getEstimatedLineTotal(item) ?? 0), 0),
+    [activeItems],
+  );
+
+  const checkedEstimatedTotal = useMemo(
+    () => checkedItems.reduce((sum, item) => sum + (getEstimatedLineTotal(item) ?? 0), 0),
+    [checkedItems],
+  );
+
+  const visibleEstimatedTotal = useMemo(
+    () => visibleItems.reduce((sum, item) => sum + (getEstimatedLineTotal(item) ?? 0), 0),
+    [visibleItems],
+  );
+
+  const shoppingModeDirtyCount = useMemo(() => {
+    if (!isShoppingMode) return 0;
+    const originalItems = shoppingListQuery.data ?? [];
+    return originalItems.filter((item) => {
+      const draft = shoppingModeDrafts[item.shopping_list_item_id] ?? buildDraftFromItem(item);
+      const checked = shoppingModeCheckedIds.includes(item.shopping_list_item_id);
+      return !draftsMatch(draft, buildDraftFromItem(item)) || checked !== item.checked;
+    }).length;
+  }, [isShoppingMode, shoppingListQuery.data, shoppingModeDrafts, shoppingModeCheckedIds]);
 
   useEffect(() => {
     setManualCheckout((current) => ({
@@ -151,6 +226,17 @@ export function ShoppingListPage() {
       }),
     }));
   }, [checkedItems]);
+
+  const manualCheckoutPreviewTotal = useMemo(
+    () =>
+      manualCheckout.items.reduce((sum, item) => {
+        const quantity = toNumber(item.quantity);
+        const unitPrice = toNumber(item.unit_price);
+        if (Number.isNaN(quantity) || Number.isNaN(unitPrice)) return sum;
+        return sum + (quantity * unitPrice);
+      }, 0),
+    [manualCheckout.items],
+  );
 
   useEffect(() => {
     if (isShoppingMode && checkoutChoice === "scan" && checkedItems.length) {
@@ -183,8 +269,80 @@ export function ShoppingListPage() {
       }),
     onSuccess: (createdItem) => {
       replaceShoppingListItems((current) => [createdItem, ...current]);
-      setNewItem({ name: "", notes: "", desiredQty: "1" });
+      setNewItem({
+        name: "",
+        category: "",
+        notes: "",
+        desiredQty: "1",
+        estimatedUnitPrice: "",
+      });
       showToast("Item adicionado na lista de compras.", "success");
+    },
+  });
+
+  const addSuggestedMutation = useMutation({
+    mutationFn: (payload: { inventory_id: string; desired_qty: number }) =>
+      apiClient<ShoppingListItemResponse>("/shopping-list/items/from-inventory", {
+        method: "POST",
+        token,
+        body: payload,
+      }),
+    onSuccess: (createdItem) => {
+      replaceShoppingListItems((current) => {
+        const existingIndex = current.findIndex(
+          (item) => item.shopping_list_item_id === createdItem.shopping_list_item_id,
+        );
+        if (existingIndex === -1) return [createdItem, ...current];
+        return current.map((item) =>
+          item.shopping_list_item_id === createdItem.shopping_list_item_id ? createdItem : item,
+        );
+      });
+      showToast("Recomendado adicionado na lista.", "success");
+    },
+  });
+
+  const importListMutation = useMutation({
+    mutationFn: async (items: ParsedShoppingListItem[]) => {
+      const results = await Promise.allSettled(
+        items.map((item) =>
+          apiClient<ShoppingListItemResponse>("/shopping-list/items", {
+            method: "POST",
+            token,
+            body: {
+              name: item.name,
+              desired_qty: item.desired_qty,
+              notes: item.notes,
+            },
+          }),
+        ),
+      );
+
+      const createdItems = results
+        .filter((result): result is PromiseFulfilledResult<ShoppingListItemResponse> => result.status === "fulfilled")
+        .map((result) => result.value);
+
+      const failedCount = results.length - createdItems.length;
+      return { createdItems, failedCount };
+    },
+    onSuccess: ({ createdItems, failedCount }) => {
+      if (createdItems.length) {
+        replaceShoppingListItems((current) => [...createdItems.reverse(), ...current]);
+      }
+
+      if (createdItems.length && !failedCount) {
+        showToast(`${createdItems.length} item(ns) carregado(s) na lista.`, "success");
+        return;
+      }
+
+      if (createdItems.length && failedCount) {
+        showToast(
+          `${createdItems.length} item(ns) carregado(s) e ${failedCount} ignorado(s).`,
+          "info",
+        );
+        return;
+      }
+
+      showToast("Nao foi possivel carregar a lista colada.", "error");
     },
   });
 
@@ -213,6 +371,10 @@ export function ShoppingListPage() {
                 notes: payload.notes !== undefined ? payload.notes : item.notes,
                 desired_qty:
                   payload.desired_qty !== undefined ? payload.desired_qty : item.desired_qty,
+                estimated_unit_price:
+                  payload.estimated_unit_price !== undefined
+                    ? payload.estimated_unit_price
+                    : item.estimated_unit_price,
                 checked: payload.checked ?? item.checked,
                 updated_at: new Date().toISOString(),
               }
@@ -231,13 +393,10 @@ export function ShoppingListPage() {
           item.shopping_list_item_id === updatedItem.shopping_list_item_id ? updatedItem : item,
         ),
       );
-      setEditingId(null);
+      showToast("Item da lista atualizado.", "success");
     },
-    onSettled: (data, error, variables, context) => {
+    onSettled: (_data, _error, variables, context) => {
       clearItemPending(context?.id ?? variables.id);
-      if (!error && data) {
-        showToast("Item da lista atualizado.", "success");
-      }
     },
   });
 
@@ -269,6 +428,46 @@ export function ShoppingListPage() {
     },
   });
 
+  const clearListMutation = useMutation({
+    mutationFn: async () => {
+      const items = shoppingListQuery.data ?? [];
+      const ids = items.map((item) => item.shopping_list_item_id);
+
+      const results = await Promise.allSettled(
+        ids.map((id) =>
+          apiClient<void>(`/shopping-list/items/${id}`, {
+            method: "DELETE",
+            token,
+          }),
+        ),
+      );
+
+      const deletedIds = ids.filter((_, index) => results[index]?.status === "fulfilled");
+      const failedCount = ids.length - deletedIds.length;
+      return { deletedIds, failedCount };
+    },
+    onSuccess: ({ deletedIds, failedCount }) => {
+      if (deletedIds.length) {
+        replaceShoppingListItems((current) =>
+          current.filter((item) => !deletedIds.includes(item.shopping_list_item_id)),
+        );
+      }
+      setIsClearListModalOpen(false);
+
+      if (deletedIds.length && !failedCount) {
+        showToast("Lista atual limpa com sucesso.", "success");
+        return;
+      }
+
+      if (deletedIds.length && failedCount) {
+        showToast(`Lista limpa parcialmente. ${failedCount} item(ns) nao foram removidos.`, "info");
+        return;
+      }
+
+      showToast("Nao foi possivel limpar a lista atual.", "error");
+    },
+  });
+
   const confirmManualPurchaseMutation = useMutation({
     mutationFn: (payload: ConfirmReceiptRequest) =>
       apiClient<ConfirmReceiptResponse>("/receipts", {
@@ -290,12 +489,19 @@ export function ShoppingListPage() {
   });
 
   function addManualItem() {
-    const payload = normalizeDraftPayload(newItem);
+    const payload = buildDraftPayload(newItem);
     if (!payload) {
-      showToast("Preencha nome e quantidade desejada valida.", "error");
+      showToast("Revise nome, categoria, quantidade e preco estimado.", "error");
       return;
     }
     createMutation.mutate(payload);
+  }
+
+  function addSuggestedItem(item: InventoryItemResponse) {
+    addSuggestedMutation.mutate({
+      inventory_id: item.inventory_id,
+      desired_qty: 1,
+    });
   }
 
   function addExistingItem(item: ShoppingListCatalogItemResponse) {
@@ -303,26 +509,32 @@ export function ShoppingListPage() {
       name: item.name,
       category: item.category ?? null,
       desired_qty: 1,
+      estimated_unit_price: item.last_unit_price ? toNumber(item.last_unit_price) : null,
     });
+  }
+
+  function importPastedList(items: ParsedShoppingListItem[]) {
+    if (!items.length) {
+      showToast("Cole pelo menos um item para carregar a lista.", "error");
+      return;
+    }
+    importListMutation.mutate(items);
   }
 
   function beginEdit(item: ShoppingListItemResponse) {
     setEditingId(item.shopping_list_item_id);
-    setEditingDraft({
-      name: item.name,
-      notes: item.notes ?? "",
-      desiredQty: String(item.desired_qty),
-    });
+    setEditingDraft(buildDraftFromItem(item));
   }
 
-  function saveEdit(id: string) {
+  function saveItem(id: string) {
     if (pendingItemIds.includes(id)) return;
-    const payload = normalizeDraftPayload(editingDraft);
+    const payload = buildDraftPayload(editingDraft);
     if (!payload) {
-      showToast("Preencha nome e quantidade desejada valida.", "error");
+      showToast("Revise nome, categoria, quantidade e preco estimado.", "error");
       return;
     }
     updateMutation.mutate({ id, payload });
+    setEditingId(null);
   }
 
   function toggleChecked(item: ShoppingListItemResponse) {
@@ -333,15 +545,108 @@ export function ShoppingListPage() {
     });
   }
 
-  function openFinalizeFlow() {
+  function updateShoppingDraft(id: string, patch: Partial<DraftState>) {
+    setShoppingModeDrafts((current) => ({
+      ...current,
+      [id]: {
+        ...(current[id] ?? {
+          name: "",
+          category: "",
+          notes: "",
+          desiredQty: "1",
+          estimatedUnitPrice: "",
+        }),
+        ...patch,
+      },
+    }));
+  }
+
+  function toggleShoppingModeChecked(id: string) {
+    setShoppingModeCheckedIds((current) =>
+      current.includes(id) ? current.filter((candidate) => candidate !== id) : [...current, id],
+    );
+  }
+
+  async function persistShoppingModeChanges() {
+    if (!isShoppingMode || !token) return true;
+
+    const originalItems = shoppingListQuery.data ?? [];
+    const updates: Array<{ id: string; payload: UpdateShoppingListItemRequest }> = [];
+
+    for (const item of originalItems) {
+      const draft = shoppingModeDrafts[item.shopping_list_item_id] ?? buildDraftFromItem(item);
+      const draftPayload = buildDraftPayload(draft);
+      if (!draftPayload) {
+        showToast(`Revise o item ${item.name} antes de continuar.`, "error");
+        return false;
+      }
+
+      const checked = shoppingModeCheckedIds.includes(item.shopping_list_item_id);
+      const currentDraft = buildDraftFromItem(item);
+      if (!draftsMatch(draft, currentDraft) || checked !== item.checked) {
+        updates.push({
+          id: item.shopping_list_item_id,
+          payload: {
+            ...draftPayload,
+            checked,
+          },
+        });
+      }
+    }
+
+    if (!updates.length) return true;
+
+    setIsSavingShoppingMode(true);
+    try {
+      const updatedItems = await Promise.all(
+        updates.map(({ id, payload }) =>
+          apiClient<ShoppingListItemResponse>(`/shopping-list/items/${id}`, {
+            method: "PATCH",
+            token,
+            body: payload,
+          }),
+        ),
+      );
+
+      replaceShoppingListItems((current) =>
+        current.map((item) => {
+          const updated = updatedItems.find(
+            (candidate) => candidate.shopping_list_item_id === item.shopping_list_item_id,
+          );
+          return updated ?? item;
+        }),
+      );
+      showToast("Alteracoes da compra salvas.", "success");
+      return true;
+    } catch {
+      showToast("Nao foi possivel salvar as alteracoes da compra.", "error");
+      return false;
+    } finally {
+      setIsSavingShoppingMode(false);
+    }
+  }
+
+  async function openFinalizeFlow() {
     if (!checkedItems.length) {
       showToast("Marque pelo menos um item antes de finalizar.", "error");
       return;
     }
-    setCheckoutChoice("manual");
+
+    const saved = await persistShoppingModeChanges();
+    if (!saved) return;
+    setCheckoutChoice("scan");
   }
 
-  function submitManualCheckout() {
+  async function selectCheckoutChoice(choice: Exclude<CheckoutChoice, null>) {
+    const saved = await persistShoppingModeChanges();
+    if (!saved) return;
+    setCheckoutChoice(choice);
+  }
+
+  async function submitManualCheckout() {
+    const saved = await persistShoppingModeChanges();
+    if (!saved) return;
+
     const market_name = manualCheckout.market_name.trim();
     if (!market_name) {
       showToast("Informe o mercado para registrar a compra.", "error");
@@ -361,7 +666,15 @@ export function ShoppingListPage() {
       };
     });
 
-    if (items.some((item) => Number.isNaN(item.quantity) || item.quantity <= 0 || Number.isNaN(item.unit_price) || item.unit_price < 0)) {
+    if (
+      items.some(
+        (item) =>
+          Number.isNaN(item.quantity) ||
+          item.quantity <= 0 ||
+          Number.isNaN(item.unit_price) ||
+          item.unit_price < 0,
+      )
+    ) {
       showToast("Revise quantidade e preco unitario dos itens marcados.", "error");
       return;
     }
@@ -386,12 +699,12 @@ export function ShoppingListPage() {
           Lista de compras
         </p>
         <h1 className="mt-3 text-3xl font-bold">
-          {isShoppingMode ? "Compra em andamento" : "Lista persistida com anotacoes e quantidade"}
+          {isShoppingMode ? "Compra em andamento" : "Lista pronta para planejar a compra"}
         </h1>
-        <p className="mt-3 max-w-2xl text-sm leading-7 text-muted">
+        <p className="mt-3 max-w-3xl text-sm leading-7 text-muted">
           {isShoppingMode
-            ? "Modo focado para marcar apenas o que esta sendo pego nesta compra."
-            : "Esta tela prepara a compra. O checklist so aparece quando voce iniciar o modo de compra."}
+            ? "No modo compra a lista abre em tabela para ajuste rapido. As alteracoes ficam locais e sao salvas em lote quando voce avancar para finalizar."
+            : "A lista normal fica fechada. Clique para editar apenas quando precisar ajustar um item antes de sair para comprar."}
         </p>
       </SectionCard>
 
@@ -404,7 +717,7 @@ export function ShoppingListPage() {
                 <p className="mt-2 text-sm text-muted">
                   {shoppingListQuery.isLoading
                     ? "Carregando itens..."
-                    : `${activeItems.length} pendente(s) e ${checkedItems.length} marcado(s).`}
+                    : `${activeItems.length} pendente(s), ${checkedItems.length} marcado(s) e ${shoppingModeDirtyCount} alteracao(oes) aguardando salvamento.`}
                 </p>
               </div>
               <Button
@@ -418,54 +731,57 @@ export function ShoppingListPage() {
               </Button>
             </div>
 
-            <div className="mt-5 grid gap-3">
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Button
+                size="sm"
+                variant={showShoppingPriceField ? "secondary" : "outline"}
+                onClick={() => setShowShoppingPriceField((current) => !current)}
+              >
+                {showShoppingPriceField ? "Ocultar valor" : "Mostrar valor"}
+              </Button>
+            </div>
+
+            <div className="mt-5 hidden gap-3 sm:grid-cols-3 md:grid">
+              <div className="rounded-[24px] bg-secondary/55 px-4 py-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+                  Total previsto da lista
+                </p>
+                <p className="mt-2 text-xl font-bold text-ink">
+                  {formatCurrency(visibleEstimatedTotal)}
+                </p>
+              </div>
+              <div className="rounded-[24px] bg-white px-4 py-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+                  Ja peguei no carrinho
+                </p>
+                <p className="mt-2 text-xl font-bold text-ink">
+                  {formatCurrency(checkedEstimatedTotal)}
+                </p>
+              </div>
+              <div className="rounded-[24px] bg-white px-4 py-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+                  Ainda falta pegar
+                </p>
+                <p className="mt-2 text-xl font-bold text-ink">
+                  {formatCurrency(activeEstimatedTotal)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5">
               {shoppingListQuery.isLoading ? (
                 <div className="rounded-2xl bg-secondary/70 px-4 py-5 text-sm text-muted">
                   Carregando sua lista...
                 </div>
-              ) : shoppingListQuery.data?.length ? (
-                <>
-                  {activeItems.map((item) => (
-                    <ShoppingListCard
-                      key={item.shopping_list_item_id}
-                    isBusy={pendingItemIds.includes(item.shopping_list_item_id)}
-                      isEditing={editingId === item.shopping_list_item_id}
-                      item={item}
-                      showChecklist
-                      draft={editingDraft}
-                      onBeginEdit={() => beginEdit(item)}
-                      onChangeDraft={setEditingDraft}
-                      onDelete={() => deleteMutation.mutate(item.shopping_list_item_id)}
-                      onSave={() => saveEdit(item.shopping_list_item_id)}
-                      onToggleChecked={() => toggleChecked(item)}
-                      onCancelEdit={() => setEditingId(null)}
-                    />
-                  ))}
-
-                  {checkedItems.length ? (
-                    <div className="mt-2 grid gap-3 border-t border-border/10 pt-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
-                        Ja pegos nesta compra
-                      </p>
-                      {checkedItems.map((item) => (
-                        <ShoppingListCard
-                          key={item.shopping_list_item_id}
-                        isBusy={pendingItemIds.includes(item.shopping_list_item_id)}
-                          isEditing={false}
-                          item={item}
-                          showChecklist
-                          draft={editingDraft}
-                          onBeginEdit={() => beginEdit(item)}
-                          onChangeDraft={setEditingDraft}
-                          onDelete={() => deleteMutation.mutate(item.shopping_list_item_id)}
-                          onSave={() => saveEdit(item.shopping_list_item_id)}
-                          onToggleChecked={() => toggleChecked(item)}
-                          onCancelEdit={() => setEditingId(null)}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                </>
+              ) : visibleItems.length ? (
+                <ShoppingModeEditor
+                  items={visibleItems}
+                  showPriceField={showShoppingPriceField}
+                  pendingItemIds={pendingItemIds}
+                  onDeleteItem={(id) => deleteMutation.mutate(id)}
+                  onToggleChecked={toggleShoppingModeChecked}
+                  onUpdateDraft={updateShoppingDraft}
+                />
               ) : (
                 <div className="rounded-2xl bg-secondary/70 px-4 py-5 text-sm text-muted">
                   Sua lista persistida ainda esta vazia.
@@ -474,165 +790,38 @@ export function ShoppingListPage() {
             </div>
           </SectionCard>
 
-          {checkoutChoice ? (
+          {checkoutChoice === "manual" ? (
             <SectionCard>
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-tertiary">
                 Finalizar compra
               </p>
-              <h2 className="mt-3 text-2xl font-bold">Fechamento da compra atual</h2>
+              <h2 className="mt-3 text-2xl font-bold">Fechamento manual da compra</h2>
               <p className="mt-2 text-sm text-muted">
-                Escolha como registrar os itens marcados nesta compra.
+                Informe mercado, quantidade e preco dos itens marcados.
               </p>
-
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <button
-                  className={[
-                    "rounded-[28px] border px-5 py-5 text-left transition",
-                    checkoutChoice === "manual"
-                      ? "border-primary bg-primary/5"
-                      : "border-border/10 bg-secondary/50",
-                  ].join(" ")}
-                  type="button"
-                  onClick={() => setCheckoutChoice("manual")}
-                >
-                  <p className="text-lg font-bold text-ink">Adicionar manualmente</p>
-                  <p className="mt-2 text-sm text-muted">
-                    Informe mercado, quantidade e preco dos itens marcados.
-                  </p>
-                </button>
-
-                <button
-                  className={[
-                    "rounded-[28px] border px-5 py-5 text-left transition",
-                    checkoutChoice === "scan"
-                      ? "border-primary bg-primary/5"
-                      : "border-border/10 bg-secondary/50",
-                  ].join(" ")}
-                  type="button"
-                  onClick={() => setCheckoutChoice("scan")}
-                >
-                  <p className="text-lg font-bold text-ink">Escanear nota</p>
-                  <p className="mt-2 text-sm text-muted">
-                    Abre a leitura logo abaixo, na mesma pagina, mantendo o contexto desta compra.
-                  </p>
-                </button>
-              </div>
-
-              {checkoutChoice === "manual" ? (
-                <div className="mt-6 grid gap-4">
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted">
-                      Mercado
-                      <input
-                        className="input-shell"
-                        placeholder="Nome do mercado"
-                        value={manualCheckout.market_name}
-                        onChange={(event) =>
-                          setManualCheckout((current) => ({
-                            ...current,
-                            market_name: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted">
-                      Data da compra
-                      <input
-                        className="input-shell"
-                        type="datetime-local"
-                        value={manualCheckout.receipt_date}
-                        onChange={(event) =>
-                          setManualCheckout((current) => ({
-                            ...current,
-                            receipt_date: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                  </div>
-
-                  <div className="grid gap-3">
-                    {manualCheckout.items.map((item) => {
-                      const quantity = toNumber(item.quantity) || 0;
-                      const unitPrice = toNumber(item.unit_price) || 0;
-                      const total = quantity * unitPrice;
-                      return (
-                        <div
-                          key={item.shopping_list_item_id}
-                          className="rounded-[28px] bg-secondary/60 px-4 py-4"
-                        >
-                          <p className="text-sm font-semibold text-ink">{item.product_name}</p>
-                          <div className="mt-3 grid gap-3 md:grid-cols-[10rem_10rem_1fr]">
-                            <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted">
-                              Quantidade
-                              <input
-                                className="input-shell"
-                                inputMode="decimal"
-                                value={item.quantity}
-                                onChange={(event) =>
-                                  setManualCheckout((current) => ({
-                                    ...current,
-                                    items: current.items.map((candidate) =>
-                                      candidate.shopping_list_item_id === item.shopping_list_item_id
-                                        ? { ...candidate, quantity: event.target.value }
-                                        : candidate,
-                                    ),
-                                  }))
-                                }
-                              />
-                            </label>
-                            <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted">
-                              Preco unitario
-                              <input
-                                className="input-shell"
-                                inputMode="decimal"
-                                placeholder="0,00"
-                                value={item.unit_price}
-                                onChange={(event) =>
-                                  setManualCheckout((current) => ({
-                                    ...current,
-                                    items: current.items.map((candidate) =>
-                                      candidate.shopping_list_item_id === item.shopping_list_item_id
-                                        ? { ...candidate, unit_price: event.target.value }
-                                        : candidate,
-                                    ),
-                                  }))
-                                }
-                              />
-                            </label>
-                            <div className="rounded-2xl bg-white px-4 py-3">
-                              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
-                                Total do item
-                              </p>
-                              <p className="mt-2 text-sm font-semibold text-ink">
-                                R$ {total.toFixed(2)}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-6 rounded-[28px] bg-secondary/60 px-5 py-5">
-                  <p className="text-sm text-muted">
-                    A leitura da nota aparece abaixo nesta mesma pagina, com revisao dos matches sugeridos antes da confirmacao.
-                  </p>
-                </div>
-              )}
+              <ManualCheckoutPanel
+                manualCheckout={manualCheckout}
+                previewTotal={manualCheckoutPreviewTotal}
+                onChange={setManualCheckout}
+              />
             </SectionCard>
           ) : null}
         </>
       ) : (
         <>
           <SectionCard>
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_9rem_auto]">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1fr)_9rem_10rem_auto]">
               <input
                 className="input-shell"
                 placeholder="Nome do item"
                 value={newItem.name}
                 onChange={(event) => setNewItem((current) => ({ ...current, name: event.target.value }))}
+              />
+              <input
+                className="input-shell"
+                placeholder="Tipo do produto"
+                value={newItem.category}
+                onChange={(event) => setNewItem((current) => ({ ...current, category: event.target.value }))}
               />
               <input
                 className="input-shell"
@@ -649,25 +838,58 @@ export function ShoppingListPage() {
                   setNewItem((current) => ({ ...current, desiredQty: event.target.value }))
                 }
               />
+              <input
+                className="input-shell"
+                inputMode="decimal"
+                placeholder="Preco"
+                value={newItem.estimatedUnitPrice}
+                onChange={(event) =>
+                  setNewItem((current) => ({ ...current, estimatedUnitPrice: event.target.value }))
+                }
+              />
               <Button isLoading={createMutation.isPending} onClick={addManualItem}>
                 Adicionar
               </Button>
             </div>
           </SectionCard>
 
+          <PasteListImporter
+            isLoading={importListMutation.isPending}
+            onImport={importPastedList}
+          />
+
           <div className="grid gap-4 xl:grid-cols-3">
             <SectionCard>
-              <h2 className="text-2xl font-bold">Sugeridos pelo sistema</h2>
+              <h2 className="text-2xl font-bold">Recomendados pelo sistema</h2>
+              <p className="mt-2 text-sm text-muted">
+                Itens do estoque que ja entraram em status de compra. Agora voce pode adicionar direto na lista.
+              </p>
               <div className="mt-5 grid gap-3">
                 {suggestedQuery.isLoading ? (
                   <div className="rounded-2xl bg-secondary/70 px-4 py-5 text-sm text-muted">
                     Carregando itens sugeridos...
                   </div>
-                ) : suggestedItems.length ? (
-                  suggestedItems.map((item) => (
-                    <div key={item.id} className="rounded-2xl bg-secondary/70 px-4 py-4">
-                      <p className="text-sm font-semibold text-ink">{item.name}</p>
-                      <p className="mt-1 text-sm text-muted">{item.subtitle}</p>
+                ) : (suggestedQuery.data ?? []).length ? (
+                  (suggestedQuery.data ?? []).map((item) => (
+                    <div
+                      key={item.inventory_id}
+                      className="flex items-start justify-between gap-3 rounded-2xl bg-secondary/70 px-4 py-4"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-ink">{item.product.name}</p>
+                        <p className="mt-1 text-sm text-muted">
+                          {item.product.category} · atual {formatQuantity(item.current_qty)} · minimo{" "}
+                          {formatQuantity(item.min_qty)}
+                        </p>
+                      </div>
+                      <Button
+                        isLoading={addSuggestedMutation.isPending}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => addSuggestedItem(item)}
+                      >
+                        Adicionar
+                      </Button>
                     </div>
                   ))
                 ) : (
@@ -685,9 +907,21 @@ export function ShoppingListPage() {
                   <p className="mt-2 text-sm text-muted">
                     {shoppingListQuery.isLoading
                       ? "Carregando itens..."
-                      : `${activeItems.length} item(ns) preparado(s) para a compra.`}
+                      : `${activeItems.length} item(ns) preparado(s) para a compra · estimativa ${formatCurrency(activeEstimatedTotal)}.`}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    Edite ou remova sem sair da tela. O total previsto ja considera quantidade x preco.
                   </p>
                 </div>
+                <Button
+                  disabled={!shoppingListQuery.data?.length}
+                  isLoading={clearListMutation.isPending}
+                  variant="ghost"
+                  className="text-red-600 hover:bg-red-50"
+                  onClick={() => setIsClearListModalOpen(true)}
+                >
+                  Limpar lista
+                </Button>
               </div>
 
               <div className="mt-5 grid gap-3">
@@ -695,21 +929,19 @@ export function ShoppingListPage() {
                   <div className="rounded-2xl bg-secondary/70 px-4 py-5 text-sm text-muted">
                     Carregando sua lista...
                   </div>
-                ) : shoppingListQuery.data?.length ? (
+                ) : visibleItems.length ? (
                   activeItems.map((item) => (
-                    <ShoppingListCard
+                    <ShoppingListItemCard
                       key={item.shopping_list_item_id}
+                      draft={editingDraft}
                       isBusy={pendingItemIds.includes(item.shopping_list_item_id)}
                       isEditing={editingId === item.shopping_list_item_id}
                       item={item}
-                      showChecklist={false}
-                      draft={editingDraft}
                       onBeginEdit={() => beginEdit(item)}
+                      onCancelEdit={() => setEditingId(null)}
                       onChangeDraft={setEditingDraft}
                       onDelete={() => deleteMutation.mutate(item.shopping_list_item_id)}
-                      onSave={() => saveEdit(item.shopping_list_item_id)}
-                      onToggleChecked={() => toggleChecked(item)}
-                      onCancelEdit={() => setEditingId(null)}
+                      onSave={() => saveItem(item.shopping_list_item_id)}
                     />
                   ))
                 ) : (
@@ -722,6 +954,9 @@ export function ShoppingListPage() {
 
             <SectionCard>
               <h2 className="text-2xl font-bold">Ja comprados antes</h2>
+              <p className="mt-2 text-sm text-muted">
+                Use o ultimo preco conhecido para montar uma previsao mais realista.
+              </p>
               <div className="mt-5 grid gap-3">
                 {catalogQuery.isLoading ? (
                   <div className="rounded-2xl bg-secondary/70 px-4 py-5 text-sm text-muted">
@@ -738,6 +973,10 @@ export function ShoppingListPage() {
                         <p className="mt-1 text-sm text-muted">
                           {item.category ?? "Sem categoria"} · {item.purchase_count} compras · ultima{" "}
                           {formatDateTime(item.last_purchased_at)}
+                        </p>
+                        <p className="mt-1 text-xs text-muted">
+                          Ultimo preco:{" "}
+                          {item.last_unit_price ? formatCurrency(toNumber(item.last_unit_price)) : "nao informado"}
                         </p>
                       </div>
                       <Button
@@ -760,27 +999,39 @@ export function ShoppingListPage() {
         </>
       )}
 
+      <ConfirmModal
+        cancelLabel="Voltar"
+        confirmLabel="Limpar lista"
+        description="Todos os itens atuais da lista de compras serao removidos para voce recomecar do zero."
+        footerNote="Use isso quando quiser testar novamente o carregamento da lista colando texto."
+        isLoading={clearListMutation.isPending}
+        isOpen={isClearListModalOpen}
+        title="Limpar lista atual?"
+        onCancel={() => setIsClearListModalOpen(false)}
+        onConfirm={() => clearListMutation.mutate()}
+      />
+
       {isShoppingMode ? (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border/10 bg-white/92 px-4 py-4 backdrop-blur sm:px-6">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-semibold text-tertiary">Compra em andamento</p>
-              <p className="text-xs text-muted">
-                {checkedItems.length
-                  ? `${checkedItems.length} item(ns) marcado(s) prontos para finalizar.`
-                  : "Marque pelo menos um item para habilitar a finalizacao."}
+              <p className="mt-1 text-sm font-semibold text-ink">
+                Total previsto {formatCurrency(visibleEstimatedTotal)}
               </p>
             </div>
             {checkoutChoice === "scan" ? (
-              <Button disabled={!checkedItems.length} size="lg">
-                Scan abaixo
+              <Button disabled={!checkedItems.length || isSavingShoppingMode} size="lg">
+                Leitura da nota abaixo
               </Button>
             ) : (
               <Button
-                disabled={!checkedItems.length}
-                isLoading={confirmManualPurchaseMutation.isPending}
+                disabled={!checkedItems.length || isSavingShoppingMode}
+                isLoading={confirmManualPurchaseMutation.isPending || isSavingShoppingMode}
                 size="lg"
-                onClick={checkoutChoice === "manual" ? submitManualCheckout : openFinalizeFlow}
+                onClick={() =>
+                  void (checkoutChoice === "manual" ? submitManualCheckout() : openFinalizeFlow())
+                }
               >
                 {checkoutChoice === "manual" ? "Confirmar compra manual" : "Finalizar compra"}
               </Button>
@@ -789,13 +1040,13 @@ export function ShoppingListPage() {
         </div>
       ) : null}
 
-      {!isShoppingMode && activeItems.length ? (
+      {!isShoppingMode && visibleItems.length ? (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border/10 bg-white/92 px-4 py-4 backdrop-blur sm:px-6">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
             <div>
               <p className="text-sm font-semibold text-tertiary">Compra pronta para iniciar</p>
               <p className="text-xs text-muted">
-                {activeItems.length} item(ns) aguardando checklist no mercado.
+                {visibleItems.length} item(ns) na lista · estimativa {formatCurrency(visibleEstimatedTotal)}.
               </p>
             </div>
             <Button size="lg" onClick={() => setIsShoppingMode(true)}>
@@ -817,118 +1068,6 @@ export function ShoppingListPage() {
           />
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function ShoppingListCard({
-  item,
-  showChecklist,
-  isEditing,
-  isBusy,
-  draft,
-  onChangeDraft,
-  onBeginEdit,
-  onSave,
-  onCancelEdit,
-  onDelete,
-  onToggleChecked,
-}: {
-  item: ShoppingListItemResponse;
-  showChecklist: boolean;
-  isEditing: boolean;
-  isBusy: boolean;
-  draft: DraftState;
-  onChangeDraft: (draft: DraftState) => void;
-  onBeginEdit: () => void;
-  onSave: () => void;
-  onCancelEdit: () => void;
-  onDelete: () => void;
-  onToggleChecked: () => void;
-}) {
-  return (
-    <div className="rounded-2xl bg-secondary/70 px-4 py-4">
-      <div className="flex items-start gap-3">
-        {showChecklist ? (
-          <input
-            checked={item.checked}
-            className="mt-1 h-4 w-4 rounded border-border/30 accent-primary"
-            disabled={isBusy}
-            type="checkbox"
-            onChange={onToggleChecked}
-          />
-        ) : null}
-
-        <div className="min-w-0 flex-1">
-          {isEditing ? (
-            <div className="grid gap-3">
-              <input
-                className="input-shell"
-                value={draft.name}
-                onChange={(event) => onChangeDraft({ ...draft, name: event.target.value })}
-              />
-              <input
-                className="input-shell"
-                placeholder="Anotacao"
-                value={draft.notes}
-                onChange={(event) => onChangeDraft({ ...draft, notes: event.target.value })}
-              />
-              <input
-                className="input-shell"
-                inputMode="decimal"
-                placeholder="Quantidade desejada"
-                value={draft.desiredQty}
-                onChange={(event) => onChangeDraft({ ...draft, desiredQty: event.target.value })}
-              />
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <p className={["text-sm font-semibold text-ink", item.checked ? "line-through opacity-70" : ""].join(" ")}>
-                  {item.name}
-                </p>
-                <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-                  {sourceLabelMap[item.source]}
-                </span>
-                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
-                  {formatQuantity(item.desired_qty)} un
-                </span>
-              </div>
-              {item.notes ? <p className="mt-2 text-sm text-muted">{item.notes}</p> : null}
-              <p className="mt-2 text-xs text-muted">
-                {item.category ?? "Sem categoria"} · atualizado {formatDateTime(item.updated_at)}
-              </p>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        {isEditing ? (
-          <>
-            <Button disabled={isBusy} size="sm" variant="ghost" onClick={onCancelEdit}>
-              Cancelar
-            </Button>
-            <Button isLoading={isBusy} size="sm" onClick={onSave}>
-              Salvar
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button disabled={isBusy} size="sm" variant="ghost" onClick={onBeginEdit}>
-              Editar
-            </Button>
-            {showChecklist ? (
-              <Button disabled={isBusy} size="sm" variant="outline" onClick={onToggleChecked}>
-                {item.checked ? "Desmarcar" : "Marcar"}
-              </Button>
-            ) : null}
-            <Button disabled={isBusy} size="sm" variant="ghost" onClick={onDelete}>
-              Remover
-            </Button>
-          </>
-        )}
-      </div>
     </div>
   );
 }

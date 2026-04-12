@@ -37,6 +37,7 @@ export function Button({
   rightIcon,
   rendered = true,
   size = "md",
+  type = "button",
   variant = "primary",
   ...props
 }: ButtonProps) {
@@ -52,6 +53,7 @@ export function Button({
         className,
       ].join(" ")}
       disabled={disabled || isLoading}
+      type={type}
       {...props}
     >
       {isLoading ? <Spinner /> : leftIcon}

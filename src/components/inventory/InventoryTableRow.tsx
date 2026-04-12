@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { InventoryItemResponse, UpdateInventoryItemRequest } from "../../lib/api/contracts";
 import { apiClient } from "../../lib/api/apiClient";
+import { formatQuantity } from "../../lib/utils/formatters";
 import { formatDateTime } from "../../lib/utils/formatters";
 import { Button } from "../ui/Button";
 import { useAuth } from "../../app/providers/AuthProvider";
@@ -30,6 +31,8 @@ export function InventoryTableRow({
     current_qty: String(item.current_qty),
     min_qty: String(item.min_qty),
   });
+  const currentQtyNumber = Number(item.current_qty);
+  const quickConsumeAmount = currentQtyNumber > 0 && currentQtyNumber < 1 ? currentQtyNumber : 1;
 
   if (!rendered) return null;
 
@@ -70,14 +73,14 @@ export function InventoryTableRow({
       apiClient(`/inventory/${item.inventory_id}/consume`, {
         method: "PATCH",
         token,
-        body: { amount: 1 },
+        body: { amount: quickConsumeAmount },
       }),
     onMutate: async () => {
       await queryClient.cancelQueries({ queryKey: ["inventory", "list"] });
       const previousItems = queryClient.getQueryData<InventoryItemResponse[]>(["inventory", "list"]);
 
       updateInventoryCache(item.inventory_id, (currentItem) => {
-        const nextQty = Number(currentItem.current_qty) - 1;
+        const nextQty = Number(currentItem.current_qty) - quickConsumeAmount;
         return {
           ...currentItem,
           current_qty: nextQty,
@@ -93,7 +96,10 @@ export function InventoryTableRow({
     },
     onSuccess: async () => {
       await refreshRelatedData();
-      showToast("Item consumido do estoque.", "success");
+      showToast(
+        `Item consumido do estoque (${String(quickConsumeAmount).replace(".", ",")}).`,
+        "success",
+      );
     },
   });
 
@@ -188,7 +194,7 @@ export function InventoryTableRow({
       </td>
       {manageMode ? (
         <td className="px-4 py-4">
-          <span className="text-sm font-semibold text-ink">{String(item.current_qty)}</span>
+          <span className="text-sm font-semibold text-ink">{formatQuantity(item.current_qty)}</span>
         </td>
       ) : null}
       {!manageMode ? <td className="px-4 py-4">
@@ -203,7 +209,7 @@ export function InventoryTableRow({
             />
           </label>
         ) : (
-          <span className="text-sm text-ink">{String(item.current_qty)}</span>
+          <span className="text-sm text-ink">{formatQuantity(item.current_qty)}</span>
         )}
       </td> : null}
       {!manageMode ? <td className="px-4 py-4">
@@ -218,7 +224,7 @@ export function InventoryTableRow({
             />
           </label>
         ) : (
-          <span className="text-sm text-ink">{String(item.min_qty)}</span>
+          <span className="text-sm text-ink">{formatQuantity(item.min_qty)}</span>
         )}
       </td> : null}
       {!manageMode ? <td className="px-4 py-4 text-sm font-semibold text-tertiary">{item.status}</td> : null}
@@ -239,9 +245,9 @@ export function InventoryTableRow({
               {manageMode ? (
                 <>
                   <Button
-                    aria-label="Consumir 1 unidade"
+                    aria-label={`Consumir ${String(quickConsumeAmount).replace(".", ",")} unidade`}
                     className="h-10 min-h-10 min-w-10 px-0"
-                    disabled={disabled}
+                    disabled={disabled || currentQtyNumber <= 0}
                     isLoading={consumeMutation.isPending}
                     size="sm"
                     variant="ghost"
@@ -260,6 +266,11 @@ export function InventoryTableRow({
                   >
                     <span className="material-symbols-outlined text-[18px]">add</span>
                   </Button>
+                  {currentQtyNumber > 0 && currentQtyNumber < 1 ? (
+                    <span className="px-1 text-xs text-muted">
+                      consumo rapido {String(quickConsumeAmount).replace(".", ",")}
+                    </span>
+                  ) : null}
                   <Button
                     aria-label="Editar produto"
                     className="h-10 min-h-10 min-w-10 px-0"

@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  DeleteReceiptResponse,
   PaginatedReceiptsResponse,
   ReceiptDetailResponse,
   ReceiptListItem,
   UpdateReceiptRequest,
 } from "../../lib/api/contracts";
 import { apiClient } from "../../lib/api/apiClient";
-import { formatCurrency, formatDateTime } from "../../lib/utils/formatters";
+import { formatCurrency, formatDateTime, formatQuantity } from "../../lib/utils/formatters";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { useToast } from "../../app/providers/ToastProvider";
 import { Button } from "../ui/Button";
+import { ConfirmModal } from "../ui/ConfirmModal";
 import { SectionCard } from "../ui/SectionCard";
 
 export function ReceiptCard({ receipt }: { receipt: ReceiptListItem }) {
@@ -19,6 +21,7 @@ export function ReceiptCard({ receipt }: { receipt: ReceiptListItem }) {
   const queryClient = useQueryClient();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [draft, setDraft] = useState<ReceiptDetailResponse | null>(null);
 
   const detailQuery = useQuery({
@@ -40,6 +43,23 @@ export function ReceiptCard({ receipt }: { receipt: ReceiptListItem }) {
       await queryClient.invalidateQueries({ queryKey: ["overview"] });
       showToast("Compra atualizada com sucesso.", "success");
       setIsEditing(false);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () =>
+      apiClient<DeleteReceiptResponse>(`/receipts/${receipt.receipt_id}`, {
+        method: "DELETE",
+        token,
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["receipts", "list"] });
+      await queryClient.invalidateQueries({ queryKey: ["receipts", "detail", receipt.receipt_id] });
+      await queryClient.invalidateQueries({ queryKey: ["inventory", "list"] });
+      await queryClient.invalidateQueries({ queryKey: ["inventory", "shopping-list"] });
+      await queryClient.invalidateQueries({ queryKey: ["overview"] });
+      showToast("Compra excluida com sucesso.", "success");
+      setIsDeleteModalOpen(false);
     },
   });
 
@@ -71,6 +91,10 @@ export function ReceiptCard({ receipt }: { receipt: ReceiptListItem }) {
     });
   }
 
+  function handleDeleteReceipt() {
+    deleteMutation.mutate();
+  }
+
   const detail = isEditing ? draft : detailQuery.data;
 
   return (
@@ -91,9 +115,19 @@ export function ReceiptCard({ receipt }: { receipt: ReceiptListItem }) {
           {isExpanded ? "Fechar detalhes" : "Ver compra"}
         </Button>
         {isExpanded && detailQuery.data && !isEditing ? (
-          <Button variant="ghost" onClick={startEditing}>
-            Editar compra
-          </Button>
+          <>
+            <Button variant="ghost" onClick={startEditing}>
+              Editar compra
+            </Button>
+            <Button
+              isLoading={deleteMutation.isPending}
+              variant="ghost"
+              className="text-red-600 hover:bg-red-50"
+              onClick={() => setIsDeleteModalOpen(true)}
+            >
+              Excluir compra
+            </Button>
+          </>
         ) : null}
       </div>
 
@@ -179,7 +213,7 @@ export function ReceiptCard({ receipt }: { receipt: ReceiptListItem }) {
                               />
                             </label>
                           ) : (
-                            <span className="text-sm text-ink">{String(item.quantity)}</span>
+                            <span className="text-sm text-ink">{formatQuantity(item.quantity)}</span>
                           )}
                         </td>
                         <td className="px-4 py-4">
@@ -250,6 +284,18 @@ export function ReceiptCard({ receipt }: { receipt: ReceiptListItem }) {
           )}
         </div>
       ) : null}
+
+      <ConfirmModal
+        cancelLabel="Voltar"
+        confirmLabel="Excluir do historico"
+        description="A compra sera removida apenas do historico. O estoque atual nao sera revertido por essa acao."
+        footerNote="Use isso para limpar compras de teste ou registros que voce nao quer mais visualizar."
+        isLoading={deleteMutation.isPending}
+        isOpen={isDeleteModalOpen}
+        title="Excluir compra do historico?"
+        onCancel={() => setIsDeleteModalOpen(false)}
+        onConfirm={handleDeleteReceipt}
+      />
     </SectionCard>
   );
 }

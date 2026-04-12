@@ -20,6 +20,16 @@ import { InventoryPage } from "./features/inventory/InventoryPage";
 import { ShoppingListPage } from "./features/shopping-list/ShoppingListPage";
 import "./styles.css";
 
+const STORAGE_THEME_KEY = "gestor-despensa.theme";
+
+function getInitialTheme() {
+  const storedTheme = window.localStorage.getItem(STORAGE_THEME_KEY);
+  if (storedTheme === "dark" || storedTheme === "light") return storedTheme;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+document.documentElement.dataset.theme = getInitialTheme();
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
