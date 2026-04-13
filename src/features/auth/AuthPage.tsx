@@ -82,7 +82,7 @@ export function AuthPage() {
               <h2 className="text-3xl font-bold">Comece com Google</h2>
               <p className="text-sm leading-7 text-muted">
                 A autenticacao local usa o `POST /api/auth/google` do backend e salva a sessao
-                apenas durante esta aba.
+                neste dispositivo para retomar o app com mais seguranca.
               </p>
             </div>
 
