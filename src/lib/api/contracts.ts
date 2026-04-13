@@ -186,6 +186,14 @@ export type UpdateShoppingListItemRequest = {
   checked?: boolean;
 };
 
+export type BulkUpdateShoppingListItemCheckedRequest = {
+  changes: Array<{
+    id: string;
+    checked: boolean;
+    ts: number;
+  }>;
+};
+
 export type HouseholdResponse = {
   household_id: string;
   name: string;
