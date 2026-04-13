@@ -20,6 +20,7 @@ import { ConfirmModal } from "../../components/ui/ConfirmModal";
 import { SectionCard } from "../../components/ui/SectionCard";
 import { apiClient } from "../../lib/api/apiClient";
 import {
+  BulkUpdateShoppingListItemCheckedRequest,
   ConfirmReceiptRequest,
   ConfirmReceiptResponse,
   CreateShoppingListItemRequest,
@@ -28,6 +29,13 @@ import {
   ShoppingListItemResponse,
   UpdateShoppingListItemRequest,
 } from "../../lib/api/contracts";
+import {
+  getCheckedSnapshot,
+  markCheckedDeltasSynced,
+  overlayLocalCheckedState,
+  saveCheckedDelta,
+  ShoppingListCheckedDelta,
+} from "../../lib/shopping-list/autoSave";
 import { clearPendingShoppingPurchase } from "../../lib/shopping-list/purchaseSession";
 import { formatCurrency, formatDateTime, formatQuantity } from "../../lib/utils/formatters";
 
@@ -100,6 +108,11 @@ export function ShoppingListPage() {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const scanSectionRef = useRef<HTMLDivElement | null>(null);
+  const checkedQueueRef = useRef<Record<string, ShoppingListCheckedDelta>>({});
+  const flushTimerRef = useRef<number | null>(null);
+  const retryTimerRef = useRef<number | null>(null);
+  const retryAttemptRef = useRef(0);
+  const isFlushingCheckedQueueRef = useRef(false);
   const [isShoppingMode, setIsShoppingMode] = useState(false);
   const [checkoutChoice, setCheckoutChoice] = useState<CheckoutChoice>(null);
   const [newItem, setNewItem] = useState<DraftState>({
@@ -147,17 +160,146 @@ export function ShoppingListPage() {
     enabled: Boolean(token),
   });
 
+  const baseShoppingListItems = useMemo(() => {
+    const result = overlayLocalCheckedState(shoppingListQuery.data ?? []);
+    return result;
+  }, [shoppingListQuery.data]);
+
+  function clearFlushTimer() {
+    if (flushTimerRef.current !== null) {
+      window.clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+  }
+
+  function clearRetryTimer() {
+    if (retryTimerRef.current !== null) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }
+
+  function scheduleCheckedQueueFlush(delayMs = 3000) {
+    clearFlushTimer();
+    flushTimerRef.current = window.setTimeout(() => {
+      void flushCheckedQueue();
+    }, delayMs);
+  }
+
+  async function flushCheckedQueue() {
+    if (!token || isFlushingCheckedQueueRef.current) return;
+
+    const changes = Object.values(checkedQueueRef.current);
+    if (!changes.length) return;
+
+    isFlushingCheckedQueueRef.current = true;
+    clearFlushTimer();
+
+    try {
+      const payload: BulkUpdateShoppingListItemCheckedRequest = {
+        changes: changes.map((change) => ({
+          id: change.id,
+          checked: change.checked,
+          ts: change.ts,
+        })),
+      };
+
+      const updatedItems = await apiClient<ShoppingListItemResponse[]>("/shopping-list/items/bulk", {
+        method: "PATCH",
+        token,
+        body: payload,
+      });
+
+      replaceShoppingListItems((current) =>
+        current.map((item) => {
+          const updated = updatedItems.find(
+            (candidate) => candidate.shopping_list_item_id === item.shopping_list_item_id,
+          );
+          return updated ?? item;
+        }),
+      );
+
+      for (const change of changes) {
+        delete checkedQueueRef.current[change.id];
+      }
+
+      retryAttemptRef.current = 0;
+      clearRetryTimer();
+      markCheckedDeltasSynced(changes);
+    } catch {
+      const attempt = retryAttemptRef.current + 1;
+      retryAttemptRef.current = attempt;
+      const delayMs = Math.min(30000, 1000 * (2 ** attempt));
+
+      clearRetryTimer();
+      retryTimerRef.current = window.setTimeout(() => {
+        void flushCheckedQueue();
+      }, delayMs);
+    } finally {
+      isFlushingCheckedQueueRef.current = false;
+    }
+  }
+
+  function enqueueCheckedChange(id: string, checked: boolean) {
+    const change = {
+      id,
+      checked,
+      ts: Date.now(),
+    };
+
+    checkedQueueRef.current[id] = change;
+    saveCheckedDelta(change);
+    retryAttemptRef.current = 0;
+    clearRetryTimer();
+    scheduleCheckedQueueFlush();
+  }
+
   useEffect(() => {
     if (!isShoppingMode) return;
 
-    const items = shoppingListQuery.data ?? [];
+    const items = baseShoppingListItems.items;
     setShoppingModeDrafts(
       Object.fromEntries(items.map((item) => [item.shopping_list_item_id, buildDraftFromItem(item)])),
     );
     setShoppingModeCheckedIds(
       items.filter((item) => item.checked).map((item) => item.shopping_list_item_id),
     );
-  }, [isShoppingMode, shoppingListQuery.data]);
+  }, [baseShoppingListItems.items, isShoppingMode]);
+
+  useEffect(() => {
+    if (!token || !baseShoppingListItems.shouldSync) return;
+
+    const pendingChanges = getCheckedSnapshot().items;
+    checkedQueueRef.current = {
+      ...checkedQueueRef.current,
+      ...pendingChanges,
+    };
+    scheduleCheckedQueueFlush(0);
+  }, [baseShoppingListItems.shouldSync, token]);
+
+  useEffect(() => {
+    function flushSoon() {
+      void flushCheckedQueue();
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        flushSoon();
+      }
+    }
+
+    window.addEventListener("pagehide", flushSoon);
+    window.addEventListener("beforeunload", flushSoon);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearFlushTimer();
+      clearRetryTimer();
+      window.removeEventListener("pagehide", flushSoon);
+      window.removeEventListener("beforeunload", flushSoon);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [token]);
 
   const shoppingModeItems = useMemo(
     () =>
@@ -168,10 +310,10 @@ export function ShoppingListPage() {
           shoppingModeCheckedIds.includes(item.shopping_list_item_id),
         ),
       ),
-    [shoppingListQuery.data, shoppingModeDrafts, shoppingModeCheckedIds],
+    [baseShoppingListItems.items, shoppingModeDrafts, shoppingModeCheckedIds],
   );
 
-  const visibleItems = isShoppingMode ? shoppingModeItems : shoppingListQuery.data ?? [];
+  const visibleItems = isShoppingMode ? shoppingModeItems : baseShoppingListItems.items;
 
   const activeItems = useMemo(
     () => visibleItems.filter((item) => !item.checked),
@@ -200,13 +342,13 @@ export function ShoppingListPage() {
 
   const shoppingModeDirtyCount = useMemo(() => {
     if (!isShoppingMode) return 0;
-    const originalItems = shoppingListQuery.data ?? [];
+    const originalItems = baseShoppingListItems.items;
     return originalItems.filter((item) => {
       const draft = shoppingModeDrafts[item.shopping_list_item_id] ?? buildDraftFromItem(item);
       const checked = shoppingModeCheckedIds.includes(item.shopping_list_item_id);
       return !draftsMatch(draft, buildDraftFromItem(item)) || checked !== item.checked;
     }).length;
-  }, [isShoppingMode, shoppingListQuery.data, shoppingModeDrafts, shoppingModeCheckedIds]);
+  }, [baseShoppingListItems.items, isShoppingMode, shoppingModeDrafts, shoppingModeCheckedIds]);
 
   useEffect(() => {
     setManualCheckout((current) => ({
@@ -562,15 +704,17 @@ export function ShoppingListPage() {
   }
 
   function toggleShoppingModeChecked(id: string) {
-    setShoppingModeCheckedIds((current) =>
-      current.includes(id) ? current.filter((candidate) => candidate !== id) : [...current, id],
-    );
+    setShoppingModeCheckedIds((current) => {
+      const nextChecked = !current.includes(id);
+      enqueueCheckedChange(id, nextChecked);
+      return nextChecked ? [...current, id] : current.filter((candidate) => candidate !== id);
+    });
   }
 
   async function persistShoppingModeChanges() {
     if (!isShoppingMode || !token) return true;
 
-    const originalItems = shoppingListQuery.data ?? [];
+    const originalItems = baseShoppingListItems.items;
     const updates: Array<{ id: string; payload: UpdateShoppingListItemRequest }> = [];
 
     for (const item of originalItems) {
@@ -583,39 +727,39 @@ export function ShoppingListPage() {
 
       const checked = shoppingModeCheckedIds.includes(item.shopping_list_item_id);
       const currentDraft = buildDraftFromItem(item);
-      if (!draftsMatch(draft, currentDraft) || checked !== item.checked) {
+      if (!draftsMatch(draft, currentDraft)) {
         updates.push({
           id: item.shopping_list_item_id,
-          payload: {
-            ...draftPayload,
-            checked,
-          },
+          payload: draftPayload,
         });
       }
     }
 
-    if (!updates.length) return true;
-
     setIsSavingShoppingMode(true);
     try {
-      const updatedItems = await Promise.all(
-        updates.map(({ id, payload }) =>
-          apiClient<ShoppingListItemResponse>(`/shopping-list/items/${id}`, {
-            method: "PATCH",
-            token,
-            body: payload,
-          }),
-        ),
-      );
+      await flushCheckedQueue();
 
-      replaceShoppingListItems((current) =>
-        current.map((item) => {
-          const updated = updatedItems.find(
-            (candidate) => candidate.shopping_list_item_id === item.shopping_list_item_id,
-          );
-          return updated ?? item;
-        }),
-      );
+      if (updates.length) {
+        const updatedItems = await Promise.all(
+          updates.map(({ id, payload }) =>
+            apiClient<ShoppingListItemResponse>(`/shopping-list/items/${id}`, {
+              method: "PATCH",
+              token,
+              body: payload,
+            }),
+          ),
+        );
+
+        replaceShoppingListItems((current) =>
+          current.map((item) => {
+            const updated = updatedItems.find(
+              (candidate) => candidate.shopping_list_item_id === item.shopping_list_item_id,
+            );
+            return updated ?? item;
+          }),
+        );
+      }
+
       showToast("Alteracoes da compra salvas.", "success");
       return true;
     } catch {
