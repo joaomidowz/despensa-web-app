@@ -138,6 +138,8 @@ export function ShoppingListPage() {
   const [shoppingModeCheckedIds, setShoppingModeCheckedIds] = useState<string[]>([]);
   const [showShoppingPriceField, setShowShoppingPriceField] = useState(true);
   const [isClearListModalOpen, setIsClearListModalOpen] = useState(false);
+  const [pendingDeleteShoppingItem, setPendingDeleteShoppingItem] =
+    useState<ShoppingListItemResponse | null>(null);
   const [manualCheckout, setManualCheckout] = useState({
     market_name: "",
     receipt_date: formatDateTimeInput(new Date()),
@@ -949,8 +951,10 @@ export function ShoppingListPage() {
               ) : visibleItems.length ? (
                 <ShoppingModeEditor
                   items={visibleItems}
+                  pendingItemIds={pendingItemIds}
                   showPriceField={showShoppingPriceField}
                   onToggleChecked={toggleShoppingModeChecked}
+                  onRequestDelete={(item) => setPendingDeleteShoppingItem(item)}
                   onUpdateDraft={updateShoppingDraft}
                 />
               ) : (
@@ -1180,6 +1184,32 @@ export function ShoppingListPage() {
         title="Limpar lista atual?"
         onCancel={() => setIsClearListModalOpen(false)}
         onConfirm={() => clearListMutation.mutate()}
+      />
+
+      <ConfirmModal
+        cancelLabel="Voltar"
+        confirmLabel="Apagar item"
+        description={
+          pendingDeleteShoppingItem
+            ? `O item ${pendingDeleteShoppingItem.name} sera removido da lista de compras.`
+            : ""
+        }
+        footerNote="Use isso quando desistir da compra deste item."
+        isLoading={
+          pendingDeleteShoppingItem
+            ? deleteMutation.isPending &&
+              pendingItemIds.includes(pendingDeleteShoppingItem.shopping_list_item_id)
+            : false
+        }
+        isOpen={Boolean(pendingDeleteShoppingItem)}
+        title="Apagar item da lista?"
+        onCancel={() => setPendingDeleteShoppingItem(null)}
+        onConfirm={() => {
+          if (!pendingDeleteShoppingItem) return;
+          deleteMutation.mutate(pendingDeleteShoppingItem.shopping_list_item_id, {
+            onSettled: () => setPendingDeleteShoppingItem(null),
+          });
+        }}
       />
 
       {isShoppingMode ? (
