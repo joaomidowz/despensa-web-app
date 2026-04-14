@@ -31,7 +31,23 @@ const GOOGLE_SCRIPT_ID = "google-identity-services";
 export function GoogleSignInButton({ disabled = false, onCredential }: GoogleSignInButtonProps) {
   const buttonRef = useRef<HTMLDivElement | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">(
+    document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+  );
   const clientId = import.meta.env.DESPENSA_APP_GOOGLE_CLIENT_ID;
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light");
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!clientId || !buttonRef.current) return;
@@ -46,11 +62,11 @@ export function GoogleSignInButton({ disabled = false, onCredential }: GoogleSig
         },
       });
       window.google.accounts.id.renderButton(buttonRef.current, {
-        theme: "outline",
+        theme: theme === "dark" ? "filled_black" : "outline",
         size: "large",
         shape: "pill",
         text: "continue_with",
-        width: Math.min(buttonRef.current.offsetWidth || 320, 360),
+        width: buttonRef.current.offsetWidth || 320,
       });
       setIsReady(true);
     };
@@ -69,7 +85,7 @@ export function GoogleSignInButton({ disabled = false, onCredential }: GoogleSig
     script.defer = true;
     script.addEventListener("load", initializeGoogle, { once: true });
     document.head.appendChild(script);
-  }, [clientId, onCredential]);
+  }, [clientId, onCredential, theme]);
 
   if (!clientId) {
     return (

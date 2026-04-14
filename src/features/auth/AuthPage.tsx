@@ -56,33 +56,33 @@ export function AuthPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-[calc(100vh-72px)] max-w-6xl items-center px-4 py-8 sm:px-6">
-      <div className="grid w-full gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-        <SectionCard className="bg-primary text-white">
-          <div className="space-y-4">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-white/80">
+    <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-5xl items-center px-4 py-8 sm:px-6 lg:px-8">
+      <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(22rem,0.85fr)] lg:items-stretch">
+        <SectionCard className="bg-primary text-white lg:min-h-[24rem] lg:px-8 lg:py-8">
+          <div className="space-y-5">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-white/75">
               Acesso
             </p>
-            <h1 className="text-4xl font-bold leading-tight">
-              Entre para revisar compras e organizar a casa em um fluxo unico.
+            <h1 className="max-w-[24rem] text-4xl font-bold leading-tight lg:text-[2.7rem]">
+              Sua casa organizada, compras sob controle e menos desperdicio no fim do mes.
             </h1>
-            <p className="text-sm leading-7 text-white/85">
-              No MVP, a autenticacao vai conectar ao backend com token centralizado no client e
-              isolamento de rotas privadas.
+            <p className="max-w-[23rem] text-base leading-8 text-white/85">
+              Centralize a lista da familia, acompanhe o que falta na despensa e volte a comprar
+              com clareza, rapidez e previsibilidade.
             </p>
           </div>
         </SectionCard>
 
-        <SectionCard>
+        <SectionCard className="lg:max-w-[34rem]">
           <div className="space-y-5">
             <div className="space-y-2">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-tertiary">
                 Entrar
               </p>
-              <h2 className="text-3xl font-bold">Comece com Google</h2>
+              <h2 className="text-3xl font-bold">Entre e comece em segundos</h2>
               <p className="text-sm leading-7 text-muted">
-                A autenticacao local usa o `POST /api/auth/google` do backend e salva a sessao
-                neste dispositivo para retomar o app com mais seguranca.
+                Use sua conta Google para acessar sua despensa, revisar compras recentes e manter
+                tudo sincronizado no mesmo lugar.
               </p>
             </div>
 
@@ -92,15 +92,10 @@ export function AuthPage() {
               Aguardando credencial do Google
             </Button>
 
-            <div className="rounded-2xl border border-border/15 bg-secondary/70 p-4 text-sm text-muted">
-              Tokens e headers de autenticacao ficarao centralizados no client. Componentes de tela
-              nao vao carregar credenciais por conta propria.
-            </div>
-
             {pendingInviteToken ? (
               <div className="rounded-2xl border border-primary/15 bg-primary/5 p-4 text-sm text-muted">
-                Um convite pendente foi detectado nesta sessao. Depois do login, o app vai levar
-                voce para concluir a entrada na household com o codigo <strong>{pendingInviteToken}</strong>.
+                Ha um convite aguardando voce. Depois do login, vamos concluir a entrada na casa com
+                o codigo <strong>{pendingInviteToken}</strong>.
               </div>
             ) : null}
           </div>
