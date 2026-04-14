@@ -35,6 +35,16 @@
     @apply box-border;
   }
 
+  @keyframes toast-timer {
+    from {
+      width: 100%;
+    }
+
+    to {
+      width: 0%;
+    }
+  }
+
   html {
     font-family: var(--font-body);
   }
