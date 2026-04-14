@@ -106,16 +106,22 @@ export function ShoppingModeEditor({
               </div>
 
               {isExpanded ? (
-                <div className="ml-11 mt-3 rounded-2xl bg-secondary/45 px-4 py-3">
-                  <p className="text-sm text-muted">{item.category ?? "Sem categoria"}</p>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="ml-11 mt-3 rounded-2xl border border-white/5 bg-secondary/70 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm text-muted">{item.category ?? "Sem categoria"}</p>
+                    <p className="text-sm font-semibold text-ink">
+                      {total === null ? "--" : formatCurrency(total)}
+                    </p>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 items-end gap-4">
                     <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                      <label className="mb-1 block text-xs font-medium text-muted">
                         Quantidade
-                      </p>
-                      <div className="mt-2 flex items-center gap-2">
+                      </label>
+                      <div className="flex items-center gap-2">
                         <button
-                          className="flex h-10 w-10 items-center justify-center rounded-full border border-border/25 bg-white text-tertiary transition hover:border-primary/30 hover:text-primary"
+                          className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-tertiary transition hover:border-primary/30 hover:text-primary"
                           type="button"
                           onClick={() => stepQuantity(item.shopping_list_item_id, item.desired_qty, -1)}
                         >
@@ -124,17 +130,17 @@ export function ShoppingModeEditor({
                           </span>
                         </button>
                         <input
-                          className="input-shell min-h-10 flex-1 rounded-xl px-3 py-2 text-right"
+                          className="input-shell h-9 flex-1 appearance-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-right text-sm text-ink [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           inputMode="decimal"
                           placeholder="1"
-                          type="number"
+                          type="text"
                           min="0"
                           step="1"
                           value={formatQuantityInput(item.desired_qty)}
                           onChange={(event) => updateQuantity(item.shopping_list_item_id, event.target.value)}
                         />
                         <button
-                          className="flex h-10 w-10 items-center justify-center rounded-full border border-border/25 bg-white text-tertiary transition hover:border-primary/30 hover:text-primary"
+                          className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-tertiary transition hover:border-primary/30 hover:text-primary"
                           type="button"
                           onClick={() => stepQuantity(item.shopping_list_item_id, item.desired_qty, 1)}
                         >
@@ -147,24 +153,26 @@ export function ShoppingModeEditor({
 
                     {showPriceField ? (
                       <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-                          Preco unitario estimado
-                        </p>
-                        <input
-                          className="input-shell mt-2 min-h-10 w-full rounded-xl px-3 py-2 text-right"
-                          inputMode="decimal"
-                          placeholder="0,00"
-                          value={formatCurrencyInput(item.estimated_unit_price)}
-                          onChange={(event) => updatePrice(item.shopping_list_item_id, event.target.value)}
-                        />
+                        <label className="mb-1 block text-xs font-medium text-muted">
+                          Preco Unit.
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted">
+                            R$
+                          </span>
+                          <input
+                            className="input-shell h-9 w-full rounded-xl border border-white/10 bg-white/5 pl-8 pr-3 text-right text-sm text-ink"
+                            inputMode="decimal"
+                            placeholder="0,00"
+                            value={formatCurrencyInput(item.estimated_unit_price)}
+                            onChange={(event) => updatePrice(item.shopping_list_item_id, event.target.value)}
+                          />
+                        </div>
                       </div>
                     ) : null}
                   </div>
 
-                  <p className="mt-3 text-sm font-semibold text-ink">
-                    Total previsto {total === null ? "--" : formatCurrency(total)}
-                  </p>
-                  {item.notes ? <p className="mt-1 text-sm text-muted">{item.notes}</p> : null}
+                  {item.notes ? <p className="mt-3 text-sm text-muted">{item.notes}</p> : null}
                 </div>
               ) : null}
             </div>
