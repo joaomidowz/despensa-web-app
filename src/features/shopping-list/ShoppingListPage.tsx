@@ -6,6 +6,7 @@ import { ManualCheckoutPanel } from "../../components/carrinho/ManualCheckoutPan
 import { PasteListImporter } from "../../components/carrinho/PasteListImporter";
 import { ShoppingListItemCard } from "../../components/carrinho/ShoppingListItemCard";
 import { ShoppingModeEditor } from "../../components/carrinho/ShoppingModeEditor";
+import { ShoppingListSaveFab } from "../../components/carrinho/ShoppingListSaveFab";
 import {
   DraftState,
   ManualCheckoutItem,
@@ -188,10 +189,10 @@ export function ShoppingListPage() {
   }
 
   async function flushCheckedQueue() {
-    if (!token || isFlushingCheckedQueueRef.current) return;
+    if (!token || isFlushingCheckedQueueRef.current) return false;
 
     const changes = Object.values(checkedQueueRef.current);
-    if (!changes.length) return;
+    if (!changes.length) return true;
 
     isFlushingCheckedQueueRef.current = true;
     clearFlushTimer();
@@ -227,11 +228,12 @@ export function ShoppingListPage() {
       retryAttemptRef.current = 0;
       clearRetryTimer();
       markCheckedDeltasSynced(changes);
+      return true;
     } catch (error) {
       if (error instanceof ApiClientError && error.status >= 400 && error.status < 500) {
         clearRetryTimer();
         clearFlushTimer();
-        return;
+        return false;
       }
 
       const attempt = retryAttemptRef.current + 1;
@@ -242,6 +244,7 @@ export function ShoppingListPage() {
       retryTimerRef.current = window.setTimeout(() => {
         void flushCheckedQueue();
       }, delayMs);
+      return false;
     } finally {
       isFlushingCheckedQueueRef.current = false;
     }
@@ -723,7 +726,7 @@ export function ShoppingListPage() {
     });
   }
 
-  async function persistShoppingModeChanges() {
+  async function persistShoppingModeChanges(options?: { silent?: boolean }) {
     if (!isShoppingMode || !token) return true;
 
     const originalItems = baseShoppingListItems.items;
@@ -749,7 +752,13 @@ export function ShoppingListPage() {
 
     setIsSavingShoppingMode(true);
     try {
-      await flushCheckedQueue();
+      const flushedChecked = await flushCheckedQueue();
+      if (!flushedChecked) {
+        if (!options?.silent) {
+          showToast("Nao foi possivel salvar as alteracoes da compra.", "error");
+        }
+        return false;
+      }
 
       if (updates.length) {
         const updatedItems = await Promise.all(
@@ -772,14 +781,22 @@ export function ShoppingListPage() {
         );
       }
 
-      showToast("Alteracoes da compra salvas.", "success");
+      if (!options?.silent) {
+        showToast("Alteracoes da compra salvas.", "success");
+      }
       return true;
     } catch {
-      showToast("Nao foi possivel salvar as alteracoes da compra.", "error");
+      if (!options?.silent) {
+        showToast("Nao foi possivel salvar as alteracoes da compra.", "error");
+      }
       return false;
     } finally {
       setIsSavingShoppingMode(false);
     }
+  }
+
+  async function handleManualSave() {
+    return persistShoppingModeChanges({ silent: true });
   }
 
   async function openFinalizeFlow() {
@@ -933,8 +950,6 @@ export function ShoppingListPage() {
                 <ShoppingModeEditor
                   items={visibleItems}
                   showPriceField={showShoppingPriceField}
-                  pendingItemIds={pendingItemIds}
-                  onDeleteItem={(id) => deleteMutation.mutate(id)}
                   onToggleChecked={toggleShoppingModeChecked}
                   onUpdateDraft={updateShoppingDraft}
                 />
@@ -1194,6 +1209,13 @@ export function ShoppingListPage() {
             )}
           </div>
         </div>
+      ) : null}
+
+      {isShoppingMode ? (
+        <ShoppingListSaveFab
+          disabled={shoppingListQuery.isLoading || !visibleItems.length || isSavingShoppingMode}
+          onSave={handleManualSave}
+        />
       ) : null}
 
       {!isShoppingMode && visibleItems.length ? (

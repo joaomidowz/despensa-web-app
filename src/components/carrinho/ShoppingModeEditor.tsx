@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { ShoppingListItemResponse } from "../../lib/api/contracts";
-import { formatCurrency, formatQuantity } from "../../lib/utils/formatters";
-import { getEstimatedLineTotal } from "./types";
+import { formatCurrency } from "../../lib/utils/formatters";
+import {
+  formatCurrencyInput,
+  formatQuantityInput,
+  getEstimatedLineTotal,
+  toNumber,
+} from "./types";
 
 const sourceLabelMap: Record<ShoppingListItemResponse["source"], string> = {
   MANUAL: "Manual",
@@ -13,14 +18,17 @@ const sourceLabelMap: Record<ShoppingListItemResponse["source"], string> = {
 
 export function ShoppingModeEditor({
   items,
+  showPriceField,
   onToggleChecked,
+  onUpdateDraft,
 }: {
   items: ShoppingListItemResponse[];
   showPriceField: boolean;
-  pendingItemIds: string[];
-  onDeleteItem: (id: string) => void;
   onToggleChecked: (id: string) => void;
-  onUpdateDraft: (id: string, patch: object) => void;
+  onUpdateDraft: (id: string, patch: {
+    desiredQty?: string;
+    estimatedUnitPrice?: string;
+  }) => void;
 }) {
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
 
@@ -28,6 +36,19 @@ export function ShoppingModeEditor({
     setExpandedIds((current) =>
       current.includes(id) ? current.filter((candidate) => candidate !== id) : [...current, id],
     );
+  }
+
+  function updateQuantity(id: string, value: string) {
+    onUpdateDraft(id, { desiredQty: value });
+  }
+
+  function updatePrice(id: string, value: string) {
+    onUpdateDraft(id, { estimatedUnitPrice: value.replace(/[^0-9,.-]/g, "") });
+  }
+
+  function stepQuantity(id: string, currentValue: number | string, delta: number) {
+    const next = Math.max(0, (Number.isNaN(toNumber(currentValue)) ? 0 : toNumber(currentValue)) + delta);
+    onUpdateDraft(id, { desiredQty: String(next).replace(/\.0+$/, "") });
   }
 
   return (
@@ -86,17 +107,63 @@ export function ShoppingModeEditor({
 
               {isExpanded ? (
                 <div className="ml-11 mt-3 rounded-2xl bg-secondary/45 px-4 py-3">
-                  <p className="text-sm text-muted">
-                    {item.category ?? "Sem categoria"} · {formatQuantity(item.desired_qty)}
-                    {total !== null ? ` · ${formatCurrency(total)}` : ""}
+                  <p className="text-sm text-muted">{item.category ?? "Sem categoria"}</p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                        Quantidade
+                      </p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <button
+                          className="flex h-10 w-10 items-center justify-center rounded-full border border-border/25 bg-white text-tertiary transition hover:border-primary/30 hover:text-primary"
+                          type="button"
+                          onClick={() => stepQuantity(item.shopping_list_item_id, item.desired_qty, -1)}
+                        >
+                          <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
+                            remove
+                          </span>
+                        </button>
+                        <input
+                          className="input-shell min-h-10 flex-1 rounded-xl px-3 py-2 text-right"
+                          inputMode="decimal"
+                          placeholder="1"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={formatQuantityInput(item.desired_qty)}
+                          onChange={(event) => updateQuantity(item.shopping_list_item_id, event.target.value)}
+                        />
+                        <button
+                          className="flex h-10 w-10 items-center justify-center rounded-full border border-border/25 bg-white text-tertiary transition hover:border-primary/30 hover:text-primary"
+                          type="button"
+                          onClick={() => stepQuantity(item.shopping_list_item_id, item.desired_qty, 1)}
+                        >
+                          <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
+                            add
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {showPriceField ? (
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                          Preco unitario estimado
+                        </p>
+                        <input
+                          className="input-shell mt-2 min-h-10 w-full rounded-xl px-3 py-2 text-right"
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          value={formatCurrencyInput(item.estimated_unit_price)}
+                          onChange={(event) => updatePrice(item.shopping_list_item_id, event.target.value)}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <p className="mt-3 text-sm font-semibold text-ink">
+                    Total previsto {total === null ? "--" : formatCurrency(total)}
                   </p>
-
-                  {item.estimated_unit_price ? (
-                    <p className="mt-1 text-sm text-muted">
-                      Preco unitario {formatCurrency(Number(item.estimated_unit_price))}
-                    </p>
-                  ) : null}
-
                   {item.notes ? <p className="mt-1 text-sm text-muted">{item.notes}</p> : null}
                 </div>
               ) : null}
