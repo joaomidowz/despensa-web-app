@@ -8,6 +8,8 @@ import { SectionCard } from "../../components/ui/SectionCard";
 import { apiClient, ApiClientError } from "../../lib/api/apiClient";
 import { loadPendingInviteToken } from "../../lib/households/invite";
 
+const PUBLIC_VERSION = "Alpha 1.5.0";
+
 type AuthResponse = {
   access_token: string;
   token_type: string;
@@ -60,6 +62,14 @@ export function AuthPage() {
       <div className="grid w-full gap-6 lg:grid-cols-[0.95fr_1.05fr]">
         <SectionCard className="bg-primary text-white">
           <div className="space-y-4">
+            <div className="hidden lg:flex">
+              <div className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-left backdrop-blur">
+                <p className="text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-white/70">
+                  Versao atual
+                </p>
+                <p className="mt-1 text-sm font-semibold text-white">{PUBLIC_VERSION}</p>
+              </div>
+            </div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-white/80">
               Acesso
             </p>
