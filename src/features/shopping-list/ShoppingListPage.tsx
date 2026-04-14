@@ -18,7 +18,7 @@ import { ShoppingListScanCheckout } from "../../components/receipts/ShoppingList
 import { Button } from "../../components/ui/Button";
 import { ConfirmModal } from "../../components/ui/ConfirmModal";
 import { SectionCard } from "../../components/ui/SectionCard";
-import { apiClient } from "../../lib/api/apiClient";
+import { apiClient, ApiClientError } from "../../lib/api/apiClient";
 import {
   BulkUpdateShoppingListItemCheckedRequest,
   ConfirmReceiptRequest,
@@ -113,6 +113,7 @@ export function ShoppingListPage() {
   const retryTimerRef = useRef<number | null>(null);
   const retryAttemptRef = useRef(0);
   const isFlushingCheckedQueueRef = useRef(false);
+  const didHydrateCheckedQueueRef = useRef(false);
   const [isShoppingMode, setIsShoppingMode] = useState(false);
   const [checkoutChoice, setCheckoutChoice] = useState<CheckoutChoice>(null);
   const [newItem, setNewItem] = useState<DraftState>({
@@ -226,7 +227,13 @@ export function ShoppingListPage() {
       retryAttemptRef.current = 0;
       clearRetryTimer();
       markCheckedDeltasSynced(changes);
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status >= 400 && error.status < 500) {
+        clearRetryTimer();
+        clearFlushTimer();
+        return;
+      }
+
       const attempt = retryAttemptRef.current + 1;
       retryAttemptRef.current = attempt;
       const delayMs = Math.min(30000, 1000 * (2 ** attempt));
@@ -267,13 +274,19 @@ export function ShoppingListPage() {
   }, [baseShoppingListItems.items, isShoppingMode]);
 
   useEffect(() => {
-    if (!token || !baseShoppingListItems.shouldSync) return;
+    if (!token) {
+      didHydrateCheckedQueueRef.current = false;
+      return;
+    }
+
+    if (!baseShoppingListItems.shouldSync || didHydrateCheckedQueueRef.current) return;
 
     const pendingChanges = getCheckedSnapshot().items;
     checkedQueueRef.current = {
       ...checkedQueueRef.current,
       ...pendingChanges,
     };
+    didHydrateCheckedQueueRef.current = true;
     scheduleCheckedQueueFlush(0);
   }, [baseShoppingListItems.shouldSync, token]);
 
@@ -535,7 +548,6 @@ export function ShoppingListPage() {
           item.shopping_list_item_id === updatedItem.shopping_list_item_id ? updatedItem : item,
         ),
       );
-      showToast("Item da lista atualizado.", "success");
     },
     onSettled: (_data, _error, variables, context) => {
       clearItemPending(context?.id ?? variables.id);

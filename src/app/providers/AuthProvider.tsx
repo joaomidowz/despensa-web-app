@@ -97,39 +97,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [token]);
 
-  useEffect(() => {
-    async function revalidateSession() {
-      const activeToken = tokenRef.current;
-      if (!activeToken) return;
-
-      try {
-        await refreshUserWithToken(activeToken);
-      } catch (error) {
-        if (error instanceof ApiClientError && error.status === 401) {
-          clearAuthState();
-        }
-      }
-    }
-
-    function handleVisibilityChange() {
-      if (document.visibilityState === "visible") {
-        void revalidateSession();
-      }
-    }
-
-    function handleFocus() {
-      void revalidateSession();
-    }
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("focus", handleFocus);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("focus", handleFocus);
-    };
-  }, [queryClient]);
-
   const value = useMemo<AuthContextValue>(
     () => ({
       token,
