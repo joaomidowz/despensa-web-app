@@ -19,7 +19,7 @@ import { ShoppingListScanCheckout } from "../../components/receipts/ShoppingList
 import { Button } from "../../components/ui/Button";
 import { ConfirmModal } from "../../components/ui/ConfirmModal";
 import { SectionCard } from "../../components/ui/SectionCard";
-import { apiClient } from "../../lib/api/apiClient";
+import { apiClient, ApiClientError } from "../../lib/api/apiClient";
 import {
   BulkUpdateShoppingListItemCheckedRequest,
   ConfirmReceiptRequest,
@@ -114,6 +114,7 @@ export function ShoppingListPage() {
   const retryTimerRef = useRef<number | null>(null);
   const retryAttemptRef = useRef(0);
   const isFlushingCheckedQueueRef = useRef(false);
+  const didHydrateCheckedQueueRef = useRef(false);
   const [isShoppingMode, setIsShoppingMode] = useState(false);
   const [checkoutChoice, setCheckoutChoice] = useState<CheckoutChoice>(null);
   const [newItem, setNewItem] = useState<DraftState>({
@@ -137,6 +138,8 @@ export function ShoppingListPage() {
   const [shoppingModeCheckedIds, setShoppingModeCheckedIds] = useState<string[]>([]);
   const [showShoppingPriceField, setShowShoppingPriceField] = useState(true);
   const [isClearListModalOpen, setIsClearListModalOpen] = useState(false);
+  const [pendingDeleteShoppingItem, setPendingDeleteShoppingItem] =
+    useState<ShoppingListItemResponse | null>(null);
   const [manualCheckout, setManualCheckout] = useState({
     market_name: "",
     receipt_date: formatDateTimeInput(new Date()),
@@ -228,7 +231,12 @@ export function ShoppingListPage() {
       clearRetryTimer();
       markCheckedDeltasSynced(changes);
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status >= 400 && error.status < 500) {
+        clearRetryTimer();
+        clearFlushTimer();
+        return false;
+      }
       const attempt = retryAttemptRef.current + 1;
       retryAttemptRef.current = attempt;
       const delayMs = Math.min(30000, 1000 * (2 ** attempt));
@@ -285,13 +293,19 @@ export function ShoppingListPage() {
   }, [baseShoppingListItems.items, isShoppingMode]);
 
   useEffect(() => {
-    if (!token || !baseShoppingListItems.shouldSync) return;
+    if (!token) {
+      didHydrateCheckedQueueRef.current = false;
+      return;
+    }
+
+    if (!baseShoppingListItems.shouldSync || didHydrateCheckedQueueRef.current) return;
 
     const pendingChanges = getCheckedSnapshot().items;
     checkedQueueRef.current = {
       ...checkedQueueRef.current,
       ...pendingChanges,
     };
+    didHydrateCheckedQueueRef.current = true;
     scheduleCheckedQueueFlush(0);
   }, [baseShoppingListItems.shouldSync, token]);
 
@@ -559,7 +573,6 @@ export function ShoppingListPage() {
           item.shopping_list_item_id === updatedItem.shopping_list_item_id ? updatedItem : item,
         ),
       );
-      showToast("Item da lista atualizado.", "success");
     },
     onSettled: (_data, _error, variables, context) => {
       clearItemPending(context?.id ?? variables.id);
@@ -1022,10 +1035,10 @@ export function ShoppingListPage() {
               ) : visibleItems.length ? (
                 <ShoppingModeEditor
                   items={visibleItems}
-                  showPriceField={showShoppingPriceField}
                   pendingItemIds={pendingItemIds}
-                  onDeleteItem={(id) => deleteMutation.mutate(id)}
+                  showPriceField={showShoppingPriceField}
                   onToggleChecked={toggleShoppingModeChecked}
+                  onRequestDelete={(item) => setPendingDeleteShoppingItem(item)}
                   onUpdateDraft={updateShoppingDraft}
                 />
               ) : (
@@ -1255,6 +1268,32 @@ export function ShoppingListPage() {
         title="Limpar lista atual?"
         onCancel={() => setIsClearListModalOpen(false)}
         onConfirm={() => clearListMutation.mutate()}
+      />
+
+      <ConfirmModal
+        cancelLabel="Voltar"
+        confirmLabel="Apagar item"
+        description={
+          pendingDeleteShoppingItem
+            ? `O item ${pendingDeleteShoppingItem.name} sera removido da lista de compras.`
+            : ""
+        }
+        footerNote="Use isso quando desistir da compra deste item."
+        isLoading={
+          pendingDeleteShoppingItem
+            ? deleteMutation.isPending &&
+              pendingItemIds.includes(pendingDeleteShoppingItem.shopping_list_item_id)
+            : false
+        }
+        isOpen={Boolean(pendingDeleteShoppingItem)}
+        title="Apagar item da lista?"
+        onCancel={() => setPendingDeleteShoppingItem(null)}
+        onConfirm={() => {
+          if (!pendingDeleteShoppingItem) return;
+          deleteMutation.mutate(pendingDeleteShoppingItem.shopping_list_item_id, {
+            onSettled: () => setPendingDeleteShoppingItem(null),
+          });
+        }}
       />
 
       {isShoppingMode ? (
