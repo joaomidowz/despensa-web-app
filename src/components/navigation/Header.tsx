@@ -9,6 +9,26 @@ type HeaderProps = {
 
 const STORAGE_THEME_KEY = "gestor-despensa.theme";
 
+const APP_NAV_ITEMS = [
+  { icon: "space_dashboard", label: "Inicio do app", path: "/app" },
+  { icon: "scan", label: "Escanear recibo", path: "/app/scan" },
+  { icon: "receipt_long", label: "Historico de compras", path: "/app/receipts" },
+  { icon: "inventory_2", label: "Inventario", path: "/app/inventory" },
+  { icon: "shopping_cart", label: "Lista de compras", path: "/app/shopping-list" },
+  { icon: "account_circle", label: "Perfil", path: "/app/profile" },
+] as const;
+
+const APP_DESKTOP_NAV_ITEMS = [
+  { icon: "inventory_2", label: "Inventario", path: "/app/inventory" },
+  { icon: "receipt_long", label: "Historico", path: "/app/receipts" },
+  { icon: "shopping_cart", label: "Lista de compras", path: "/app/shopping-list" },
+] as const;
+
+const PUBLIC_NAV_ITEMS = [
+  { label: "Inicio", path: "/" },
+  { label: "Precos", path: "/pricing" },
+] as const;
+
 export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: HeaderProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -21,6 +41,9 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
   const isPublicHome = location.pathname === "/";
   const shouldShowMenu = leftSlot === "menu";
   const shouldShowLeftButton = leftSlot !== "none";
+  const shouldShowDesktopAppNav = shouldShowMenu && isAuthenticated;
+  const shouldShowDesktopPublicNav = !shouldShowDesktopAppNav;
+  const shouldShowThemeToggle = !(shouldShowDesktopPublicNav && !isAuthenticated);
 
   useEffect(() => {
     setIsMenuOpen(false);
@@ -107,49 +130,58 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
               <div className="h-11 w-11" aria-hidden="true" />
             )}
             <Link className="truncate text-sm font-bold text-tertiary sm:text-base" to="/">
-              {title}
+              {shouldShowDesktopAppNav ? "Minha despensa" : title}
             </Link>
           </div>
 
-          <nav className="hidden items-center justify-center gap-2 sm:flex">
-            <NavLink className="nav-link" to="/">
-              Inicio
-            </NavLink>
-            <NavLink className="nav-link" to="/pricing">
-              Precos
-            </NavLink>
-            {isAuthenticated ? (
-              <>
-                <NavLink className="nav-link" to="/app">
-                  App
-                </NavLink>
-                <button className="nav-link" type="button" onClick={() => void handleSignOut()}>
-                  Sair
-                </button>
-              </>
+          <nav className="hidden items-center justify-center gap-3 sm:flex">
+            {shouldShowDesktopPublicNav ? (
+              <div className="items-center justify-center gap-7 lg:flex">
+                {PUBLIC_NAV_ITEMS.map((item) => (
+                  <DesktopNavLink key={item.path} to={item.path} variant="public">
+                    {item.label}
+                  </DesktopNavLink>
+                ))}
+              </div>
             ) : (
-              !isPublicHome && (
-                <NavLink className="nav-link" to="/auth">
-                  Entrar
-                </NavLink>
-              )
+              <div className="hidden items-center justify-center gap-2 lg:flex">
+                {APP_DESKTOP_NAV_ITEMS.map((item) => (
+                  <DesktopNavLink key={item.path} to={item.path} variant="app" withIcon={item.icon}>
+                    {item.label}
+                  </DesktopNavLink>
+                ))}
+              </div>
             )}
           </nav>
 
           <div className="ml-auto flex items-center gap-3">
-            <button
-              aria-label={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-secondary text-tertiary focus:outline-none focus:ring-2 focus:ring-primary"
-              type="button"
-              onClick={toggleTheme}
-            >
-              <span className="material-symbols-outlined" aria-hidden="true">
-                {theme === "dark" ? "light_mode" : "dark_mode"}
-              </span>
-            </button>
+            {shouldShowThemeToggle ? (
+              <button
+                aria-label={theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro"}
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-secondary text-tertiary focus:outline-none focus:ring-2 focus:ring-primary"
+                type="button"
+                onClick={toggleTheme}
+              >
+                <span className="material-symbols-outlined" aria-hidden="true">
+                  {theme === "dark" ? "light_mode" : "dark_mode"}
+                </span>
+              </button>
+            ) : null}
+
+            {shouldShowDesktopPublicNav && !isAuthenticated ? (
+              <Link className="hidden rounded-2xl bg-tertiary px-5 py-3 text-sm font-semibold text-white transition hover:bg-primary sm:inline-flex" to="/auth">
+                Entrar
+              </Link>
+            ) : null}
 
             {isAuthenticated && user ? (
               <div className="flex items-center gap-3">
+                <Link
+                  className="hidden text-sm font-medium text-muted transition hover:text-tertiary lg:inline-flex"
+                  to="/app"
+                >
+                  Home
+                </Link>
                 <div className="hidden text-right sm:block">
                   <p className="text-sm font-semibold text-tertiary">{user.name}</p>
                   <p className="text-xs text-muted">{user.email}</p>
@@ -178,6 +210,9 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
                     </div>
                   )}
                 </Link>
+                <button className="hidden text-sm font-medium text-muted transition hover:text-tertiary lg:inline-flex" type="button" onClick={() => void handleSignOut()}>
+                  Sair
+                </button>
               </div>
             ) : (
               <div className="h-11 w-11" aria-hidden="true" />
@@ -218,35 +253,58 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
             </div>
 
             <nav className="grid gap-2">
-              <MobileNavButton icon="space_dashboard" label="Inicio do app" onClick={() => goTo("/app")} />
-              <MobileNavButton icon="scan" label="Escanear recibo" onClick={() => goTo("/app/scan")} />
-              <MobileNavButton
-                icon="receipt_long"
-                label="Historico de compras"
-                onClick={() => goTo("/app/receipts")}
-              />
-              <MobileNavButton icon="inventory_2" label="Inventario" onClick={() => goTo("/app/inventory")} />
-              <MobileNavButton icon="shopping_cart" label="Lista de compras" onClick={() => goTo("/app/shopping-list")} />
-              <MobileNavButton icon="account_circle" label="Perfil" onClick={() => goTo("/app/profile")} />
+              {APP_NAV_ITEMS.map((item) => (
+                item.path === "/app/profile" ? null : (
+                <MobileNavButton
+                  key={item.path}
+                  icon={item.icon}
+                  label={item.label}
+                  onClick={() => goTo(item.path)}
+                />
+                )
+              ))}
               <MobileNavButton icon="sell" label="Precos" onClick={() => goTo("/pricing")} />
               <MobileNavButton
                 icon={theme === "dark" ? "light_mode" : "dark_mode"}
                 label={theme === "dark" ? "Modo claro" : "Modo escuro"}
                 onClick={toggleTheme}
               />
+              <MobileNavButton icon="logout" label="Sair" onClick={() => void handleSignOut()} />
             </nav>
-
-            <button
-              className="mt-auto flex min-h-12 items-center justify-center rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-white"
-              type="button"
-              onClick={() => void handleSignOut()}
-            >
-              Sair
-            </button>
           </aside>
         </div>
       ) : null}
     </>
+  );
+}
+
+function DesktopNavLink({
+  children,
+  to,
+  variant,
+  withIcon,
+}: {
+  children: string;
+  to: string;
+  variant: "public" | "app";
+  withIcon?: string;
+}) {
+  return (
+    <NavLink
+      className={({ isActive }) =>
+        isActive
+          ? `nav-link nav-link-${variant} nav-link-${variant}-active`
+          : `nav-link nav-link-${variant}`
+      }
+      to={to}
+    >
+      {withIcon ? (
+        <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
+          {withIcon}
+        </span>
+      ) : null}
+      <span>{children}</span>
+    </NavLink>
   );
 }
 

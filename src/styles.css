@@ -127,7 +127,23 @@
   }
 
   .nav-link {
-    @apply rounded-full px-3 py-2 text-sm font-medium text-muted transition hover:bg-secondary hover:text-tertiary focus:outline-none focus:ring-2 focus:ring-primary;
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-muted transition hover:bg-secondary hover:text-tertiary focus:outline-none focus:ring-2 focus:ring-primary;
+  }
+
+  .nav-link-public {
+    @apply rounded-none px-0 py-1 text-ink hover:bg-transparent hover:text-tertiary;
+  }
+
+  .nav-link-public-active {
+    @apply text-tertiary;
+  }
+
+  .nav-link-app {
+    @apply px-4 py-3;
+  }
+
+  .nav-link-app-active {
+    @apply bg-secondary text-tertiary;
   }
 
   .glass-panel {
