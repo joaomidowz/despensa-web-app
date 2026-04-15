@@ -16,6 +16,7 @@ export function ShoppingListItemCard({
   draft,
   isBusy,
   isEditing,
+  isShoppingMode = false,
   onBeginEdit,
   onCancelEdit,
   onChangeDraft,
@@ -26,6 +27,7 @@ export function ShoppingListItemCard({
   draft: DraftState;
   isBusy: boolean;
   isEditing: boolean;
+  isShoppingMode?: boolean;
   onBeginEdit: () => void;
   onCancelEdit: () => void;
   onChangeDraft: (draft: DraftState) => void;
@@ -118,33 +120,35 @@ export function ShoppingListItemCard({
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {isEditing ? (
-          <>
-            <Button disabled={isBusy} size="sm" variant="ghost" onClick={onCancelEdit}>
-              Cancelar
-            </Button>
-            <Button isLoading={isBusy} size="sm" onClick={onSave}>
-              Salvar
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button disabled={isBusy} size="sm" variant="ghost" onClick={onBeginEdit}>
-              Editar
-            </Button>
-            <Button
-              disabled={isBusy}
-              size="sm"
-              variant="ghost"
-              className="text-red-600 hover:bg-red-50"
-              onClick={onDelete}
-            >
-              Remover
-            </Button>
-          </>
-        )}
-      </div>
+      {!isShoppingMode ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {isEditing ? (
+            <>
+              <Button disabled={isBusy} size="sm" variant="ghost" onClick={onCancelEdit}>
+                Cancelar
+              </Button>
+              <Button isLoading={isBusy} size="sm" onClick={onSave}>
+                Salvar
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button disabled={isBusy} size="sm" variant="ghost" onClick={onBeginEdit}>
+                Editar
+              </Button>
+              <Button
+                disabled={isBusy}
+                size="sm"
+                variant="ghost"
+                className="text-red-600 hover:bg-red-50"
+                onClick={onDelete}
+              >
+                Remover
+              </Button>
+            </>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

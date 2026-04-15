@@ -35,6 +35,16 @@
     @apply box-border;
   }
 
+  @keyframes toast-timer {
+    from {
+      width: 100%;
+    }
+
+    to {
+      width: 0%;
+    }
+  }
+
   html {
     font-family: var(--font-body);
   }
@@ -127,11 +137,52 @@
   }
 
   .nav-link {
-    @apply rounded-full px-3 py-2 text-sm font-medium text-muted transition hover:bg-secondary hover:text-tertiary focus:outline-none focus:ring-2 focus:ring-primary;
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-muted transition hover:bg-secondary hover:text-tertiary focus:outline-none focus:ring-2 focus:ring-primary;
+  }
+
+  .nav-link-public {
+    @apply rounded-none px-0 py-1 text-ink hover:bg-transparent hover:text-tertiary;
+  }
+
+  .nav-link-public-active {
+    @apply text-tertiary;
+  }
+
+  .nav-link-app {
+    @apply px-4 py-3;
+  }
+
+  .nav-link-app-active {
+    @apply bg-secondary text-tertiary;
   }
 
   .glass-panel {
     @apply border border-white/50 bg-white/75 backdrop-blur;
+  }
+
+  .route-transition {
+    animation: route-enter 260ms ease;
+  }
+
+  .navigation-progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 80;
+    height: 3px;
+    width: min(36vw, 18rem);
+    opacity: 0;
+    pointer-events: none;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #524be0 0%, #6d67f7 52%, #8da2ff 100%);
+    box-shadow: 0 0 18px rgba(82, 75, 224, 0.32);
+    transform: translateX(-120%);
+    transition: opacity 180ms ease;
+  }
+
+  .navigation-progress--active {
+    opacity: 1;
+    animation: navigation-progress 520ms ease forwards;
   }
 }
 
@@ -171,5 +222,36 @@
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.04),
       0 0 0 4px rgba(141, 162, 255, 0.10) !important;
+  }
+
+  :root[data-theme="dark"] .navigation-progress {
+    background: linear-gradient(90deg, #8da2ff 0%, #c7d2ff 55%, #ffffff 100%);
+    box-shadow: 0 0 20px rgba(141, 162, 255, 0.34);
+  }
+}
+
+@keyframes route-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes navigation-progress {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  20% {
+    transform: translateX(-20%);
+  }
+
+  100% {
+    transform: translateX(320%);
   }
 }

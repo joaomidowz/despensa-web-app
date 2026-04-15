@@ -29,7 +29,7 @@ export function ConfirmModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-end bg-ink/45 px-4 py-4 backdrop-blur-sm sm:items-center sm:justify-center"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-ink/45 px-4 py-4 backdrop-blur-sm"
       onClick={onCancel}
     >
       <div

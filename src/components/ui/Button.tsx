@@ -45,6 +45,7 @@ export function Button({
 
   return (
     <button
+      aria-busy={isLoading}
       className={[
         "inline-flex items-center justify-center gap-2 rounded-2xl font-semibold transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60",
         variantClassMap[variant],
@@ -67,7 +68,7 @@ function Spinner() {
   return (
     <span
       aria-hidden="true"
-      className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+      className="h-4 w-4 animate-spin rounded-full border-2 border-current/25 border-t-current"
     />
   );
 }

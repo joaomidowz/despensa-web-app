@@ -1,5 +1,7 @@
 import { Outlet, useLocation } from "react-router-dom";
+import { NavigationProgress } from "../../components/feedback/NavigationProgress";
 import { Header } from "../../components/navigation/Header";
+import { RouteTransition } from "../../components/ui/RouteTransition";
 
 export function PublicLayout() {
   const location = useLocation();
@@ -7,8 +9,11 @@ export function PublicLayout() {
 
   return (
     <div className="min-h-screen bg-surface text-ink">
+      <NavigationProgress />
       <Header leftSlot={leftSlot} />
-      <Outlet />
+      <RouteTransition>
+        <Outlet />
+      </RouteTransition>
     </div>
   );
 }

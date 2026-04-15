@@ -6,6 +6,7 @@ import { ManualCheckoutPanel } from "../../components/carrinho/ManualCheckoutPan
 import { PasteListImporter } from "../../components/carrinho/PasteListImporter";
 import { ShoppingListItemCard } from "../../components/carrinho/ShoppingListItemCard";
 import { ShoppingModeEditor } from "../../components/carrinho/ShoppingModeEditor";
+import { ShoppingListSaveFab } from "../../components/carrinho/ShoppingListSaveFab";
 import {
   DraftState,
   ManualCheckoutItem,
@@ -18,8 +19,9 @@ import { ShoppingListScanCheckout } from "../../components/receipts/ShoppingList
 import { Button } from "../../components/ui/Button";
 import { ConfirmModal } from "../../components/ui/ConfirmModal";
 import { SectionCard } from "../../components/ui/SectionCard";
-import { apiClient } from "../../lib/api/apiClient";
+import { apiClient, ApiClientError } from "../../lib/api/apiClient";
 import {
+  BulkUpdateShoppingListItemCheckedRequest,
   ConfirmReceiptRequest,
   ConfirmReceiptResponse,
   CreateShoppingListItemRequest,
@@ -28,6 +30,13 @@ import {
   ShoppingListItemResponse,
   UpdateShoppingListItemRequest,
 } from "../../lib/api/contracts";
+import {
+  getCheckedSnapshot,
+  markCheckedDeltasSynced,
+  overlayLocalCheckedState,
+  saveCheckedDelta,
+  ShoppingListCheckedDelta,
+} from "../../lib/shopping-list/autoSave";
 import { clearPendingShoppingPurchase } from "../../lib/shopping-list/purchaseSession";
 import { formatCurrency, formatDateTime, formatQuantity } from "../../lib/utils/formatters";
 
@@ -100,6 +109,12 @@ export function ShoppingListPage() {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const scanSectionRef = useRef<HTMLDivElement | null>(null);
+  const checkedQueueRef = useRef<Record<string, ShoppingListCheckedDelta>>({});
+  const flushTimerRef = useRef<number | null>(null);
+  const retryTimerRef = useRef<number | null>(null);
+  const retryAttemptRef = useRef(0);
+  const isFlushingCheckedQueueRef = useRef(false);
+  const didHydrateCheckedQueueRef = useRef(false);
   const [isShoppingMode, setIsShoppingMode] = useState(false);
   const [checkoutChoice, setCheckoutChoice] = useState<CheckoutChoice>(null);
   const [newItem, setNewItem] = useState<DraftState>({
@@ -123,6 +138,8 @@ export function ShoppingListPage() {
   const [shoppingModeCheckedIds, setShoppingModeCheckedIds] = useState<string[]>([]);
   const [showShoppingPriceField, setShowShoppingPriceField] = useState(true);
   const [isClearListModalOpen, setIsClearListModalOpen] = useState(false);
+  const [pendingDeleteShoppingItem, setPendingDeleteShoppingItem] =
+    useState<ShoppingListItemResponse | null>(null);
   const [manualCheckout, setManualCheckout] = useState({
     market_name: "",
     receipt_date: formatDateTimeInput(new Date()),
@@ -147,17 +164,174 @@ export function ShoppingListPage() {
     enabled: Boolean(token),
   });
 
+  const baseShoppingListItems = useMemo(() => {
+    const result = overlayLocalCheckedState(shoppingListQuery.data ?? []);
+    return result;
+  }, [shoppingListQuery.data]);
+
+  function clearFlushTimer() {
+    if (flushTimerRef.current !== null) {
+      window.clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+  }
+
+  function clearRetryTimer() {
+    if (retryTimerRef.current !== null) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }
+
+  function scheduleCheckedQueueFlush(delayMs = 3000) {
+    clearFlushTimer();
+    flushTimerRef.current = window.setTimeout(() => {
+      void flushCheckedQueue();
+    }, delayMs);
+  }
+
+  async function flushCheckedQueue() {
+    if (!token || isFlushingCheckedQueueRef.current) return false;
+
+    const changes = Object.values(checkedQueueRef.current);
+    if (!changes.length) return true;
+
+    isFlushingCheckedQueueRef.current = true;
+    clearFlushTimer();
+
+    try {
+      const payload: BulkUpdateShoppingListItemCheckedRequest = {
+        changes: changes.map((change) => ({
+          id: change.id,
+          checked: change.checked,
+          ts: change.ts,
+        })),
+      };
+
+      const updatedItems = await apiClient<ShoppingListItemResponse[]>("/shopping-list/items/bulk", {
+        method: "PATCH",
+        token,
+        body: payload,
+      });
+
+      replaceShoppingListItems((current) =>
+        current.map((item) => {
+          const updated = updatedItems.find(
+            (candidate) => candidate.shopping_list_item_id === item.shopping_list_item_id,
+          );
+          return updated ?? item;
+        }),
+      );
+
+      for (const change of changes) {
+        delete checkedQueueRef.current[change.id];
+      }
+
+      retryAttemptRef.current = 0;
+      clearRetryTimer();
+      markCheckedDeltasSynced(changes);
+      return true;
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status >= 400 && error.status < 500) {
+        clearRetryTimer();
+        clearFlushTimer();
+        return false;
+      }
+      const attempt = retryAttemptRef.current + 1;
+      retryAttemptRef.current = attempt;
+      const delayMs = Math.min(30000, 1000 * (2 ** attempt));
+
+      clearRetryTimer();
+      retryTimerRef.current = window.setTimeout(() => {
+        void flushCheckedQueue();
+      }, delayMs);
+      return false;
+    } finally {
+      isFlushingCheckedQueueRef.current = false;
+    }
+  }
+
+  function enqueueCheckedChange(id: string, checked: boolean) {
+    const change = {
+      id,
+      checked,
+      ts: Date.now(),
+    };
+
+    checkedQueueRef.current[id] = change;
+    saveCheckedDelta(change);
+    retryAttemptRef.current = 0;
+    clearRetryTimer();
+    scheduleCheckedQueueFlush();
+  }
+
   useEffect(() => {
     if (!isShoppingMode) return;
 
-    const items = shoppingListQuery.data ?? [];
-    setShoppingModeDrafts(
-      Object.fromEntries(items.map((item) => [item.shopping_list_item_id, buildDraftFromItem(item)])),
-    );
-    setShoppingModeCheckedIds(
-      items.filter((item) => item.checked).map((item) => item.shopping_list_item_id),
-    );
-  }, [isShoppingMode, shoppingListQuery.data]);
+    const items = baseShoppingListItems.items;
+    const itemIds = new Set(items.map((item) => item.shopping_list_item_id));
+
+    setShoppingModeDrafts((current) => {
+      const nextDrafts: DraftMap = {};
+
+      for (const item of items) {
+        nextDrafts[item.shopping_list_item_id] =
+          current[item.shopping_list_item_id] ?? buildDraftFromItem(item);
+      }
+
+      return nextDrafts;
+    });
+
+    setShoppingModeCheckedIds((current) => {
+      const preservedChecked = current.filter((id) => itemIds.has(id));
+      const checkedFromItems = items
+        .filter((item) => item.checked && !preservedChecked.includes(item.shopping_list_item_id))
+        .map((item) => item.shopping_list_item_id);
+
+      return [...preservedChecked, ...checkedFromItems];
+    });
+  }, [baseShoppingListItems.items, isShoppingMode]);
+
+  useEffect(() => {
+    if (!token) {
+      didHydrateCheckedQueueRef.current = false;
+      return;
+    }
+
+    if (!baseShoppingListItems.shouldSync || didHydrateCheckedQueueRef.current) return;
+
+    const pendingChanges = getCheckedSnapshot().items;
+    checkedQueueRef.current = {
+      ...checkedQueueRef.current,
+      ...pendingChanges,
+    };
+    didHydrateCheckedQueueRef.current = true;
+    scheduleCheckedQueueFlush(0);
+  }, [baseShoppingListItems.shouldSync, token]);
+
+  useEffect(() => {
+    function flushSoon() {
+      void flushCheckedQueue();
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        flushSoon();
+      }
+    }
+
+    window.addEventListener("pagehide", flushSoon);
+    window.addEventListener("beforeunload", flushSoon);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearFlushTimer();
+      clearRetryTimer();
+      window.removeEventListener("pagehide", flushSoon);
+      window.removeEventListener("beforeunload", flushSoon);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [token]);
 
   const shoppingModeItems = useMemo(
     () =>
@@ -168,10 +342,10 @@ export function ShoppingListPage() {
           shoppingModeCheckedIds.includes(item.shopping_list_item_id),
         ),
       ),
-    [shoppingListQuery.data, shoppingModeDrafts, shoppingModeCheckedIds],
+    [baseShoppingListItems.items, shoppingModeDrafts, shoppingModeCheckedIds],
   );
 
-  const visibleItems = isShoppingMode ? shoppingModeItems : shoppingListQuery.data ?? [];
+  const visibleItems = isShoppingMode ? shoppingModeItems : baseShoppingListItems.items;
 
   const activeItems = useMemo(
     () => visibleItems.filter((item) => !item.checked),
@@ -200,13 +374,13 @@ export function ShoppingListPage() {
 
   const shoppingModeDirtyCount = useMemo(() => {
     if (!isShoppingMode) return 0;
-    const originalItems = shoppingListQuery.data ?? [];
+    const originalItems = baseShoppingListItems.items;
     return originalItems.filter((item) => {
       const draft = shoppingModeDrafts[item.shopping_list_item_id] ?? buildDraftFromItem(item);
       const checked = shoppingModeCheckedIds.includes(item.shopping_list_item_id);
       return !draftsMatch(draft, buildDraftFromItem(item)) || checked !== item.checked;
     }).length;
-  }, [isShoppingMode, shoppingListQuery.data, shoppingModeDrafts, shoppingModeCheckedIds]);
+  }, [baseShoppingListItems.items, isShoppingMode, shoppingModeDrafts, shoppingModeCheckedIds]);
 
   useEffect(() => {
     setManualCheckout((current) => ({
@@ -269,6 +443,12 @@ export function ShoppingListPage() {
       }),
     onSuccess: (createdItem) => {
       replaceShoppingListItems((current) => [createdItem, ...current]);
+      if (isShoppingMode) {
+        setShoppingModeDrafts((current) => ({
+          ...current,
+          [createdItem.shopping_list_item_id]: buildDraftFromItem(createdItem),
+        }));
+      }
       setNewItem({
         name: "",
         category: "",
@@ -393,7 +573,6 @@ export function ShoppingListPage() {
           item.shopping_list_item_id === updatedItem.shopping_list_item_id ? updatedItem : item,
         ),
       );
-      showToast("Item da lista atualizado.", "success");
     },
     onSettled: (_data, _error, variables, context) => {
       clearItemPending(context?.id ?? variables.id);
@@ -562,15 +741,17 @@ export function ShoppingListPage() {
   }
 
   function toggleShoppingModeChecked(id: string) {
-    setShoppingModeCheckedIds((current) =>
-      current.includes(id) ? current.filter((candidate) => candidate !== id) : [...current, id],
-    );
+    setShoppingModeCheckedIds((current) => {
+      const nextChecked = !current.includes(id);
+      enqueueCheckedChange(id, nextChecked);
+      return nextChecked ? [...current, id] : current.filter((candidate) => candidate !== id);
+    });
   }
 
-  async function persistShoppingModeChanges() {
+  async function persistShoppingModeChanges(options?: { silent?: boolean }) {
     if (!isShoppingMode || !token) return true;
 
-    const originalItems = shoppingListQuery.data ?? [];
+    const originalItems = baseShoppingListItems.items;
     const updates: Array<{ id: string; payload: UpdateShoppingListItemRequest }> = [];
 
     for (const item of originalItems) {
@@ -583,47 +764,61 @@ export function ShoppingListPage() {
 
       const checked = shoppingModeCheckedIds.includes(item.shopping_list_item_id);
       const currentDraft = buildDraftFromItem(item);
-      if (!draftsMatch(draft, currentDraft) || checked !== item.checked) {
+      if (!draftsMatch(draft, currentDraft)) {
         updates.push({
           id: item.shopping_list_item_id,
-          payload: {
-            ...draftPayload,
-            checked,
-          },
+          payload: draftPayload,
         });
       }
     }
 
-    if (!updates.length) return true;
-
     setIsSavingShoppingMode(true);
     try {
-      const updatedItems = await Promise.all(
-        updates.map(({ id, payload }) =>
-          apiClient<ShoppingListItemResponse>(`/shopping-list/items/${id}`, {
-            method: "PATCH",
-            token,
-            body: payload,
-          }),
-        ),
-      );
+      const flushedChecked = await flushCheckedQueue();
+      if (!flushedChecked) {
+        if (!options?.silent) {
+          showToast("Nao foi possivel salvar as alteracoes da compra.", "error");
+        }
+        return false;
+      }
 
-      replaceShoppingListItems((current) =>
-        current.map((item) => {
-          const updated = updatedItems.find(
-            (candidate) => candidate.shopping_list_item_id === item.shopping_list_item_id,
-          );
-          return updated ?? item;
-        }),
-      );
-      showToast("Alteracoes da compra salvas.", "success");
+      if (updates.length) {
+        const updatedItems = await Promise.all(
+          updates.map(({ id, payload }) =>
+            apiClient<ShoppingListItemResponse>(`/shopping-list/items/${id}`, {
+              method: "PATCH",
+              token,
+              body: payload,
+            }),
+          ),
+        );
+
+        replaceShoppingListItems((current) =>
+          current.map((item) => {
+            const updated = updatedItems.find(
+              (candidate) => candidate.shopping_list_item_id === item.shopping_list_item_id,
+            );
+            return updated ?? item;
+          }),
+        );
+      }
+
+      if (!options?.silent) {
+        showToast("Alteracoes da compra salvas.", "success");
+      }
       return true;
     } catch {
-      showToast("Nao foi possivel salvar as alteracoes da compra.", "error");
+      if (!options?.silent) {
+        showToast("Nao foi possivel salvar as alteracoes da compra.", "error");
+      }
       return false;
     } finally {
       setIsSavingShoppingMode(false);
     }
+  }
+
+  async function handleManualSave() {
+    return persistShoppingModeChanges({ silent: true });
   }
 
   async function openFinalizeFlow() {
@@ -693,7 +888,7 @@ export function ShoppingListPage() {
   }
 
   return (
-    <div className="grid gap-6 pb-36">
+    <div className="grid gap-6 pb-44">
       <SectionCard>
         <p className="text-sm font-semibold uppercase tracking-[0.18em] text-tertiary">
           Lista de compras
@@ -741,6 +936,70 @@ export function ShoppingListPage() {
               </Button>
             </div>
 
+            <div className="mt-5 rounded-[24px] bg-secondary/55 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+                    Adicao rapida durante a compra
+                  </p>
+                  <h3 className="mt-1 text-lg font-bold text-ink">
+                    Esqueceu um item? Adicione sem sair do modo compra.
+                  </h3>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1fr)_7rem_9rem_auto]">
+                <input
+                  className="input-shell"
+                  placeholder="Nome do item"
+                  value={newItem.name}
+                  onChange={(event) =>
+                    setNewItem((current) => ({ ...current, name: event.target.value }))
+                  }
+                />
+                <input
+                  className="input-shell"
+                  placeholder="Tipo do produto"
+                  value={newItem.category}
+                  onChange={(event) =>
+                    setNewItem((current) => ({ ...current, category: event.target.value }))
+                  }
+                />
+                <input
+                  className="input-shell"
+                  placeholder="Anotacao opcional"
+                  value={newItem.notes}
+                  onChange={(event) =>
+                    setNewItem((current) => ({ ...current, notes: event.target.value }))
+                  }
+                />
+                <input
+                  className="input-shell"
+                  inputMode="decimal"
+                  placeholder="Qtd"
+                  value={newItem.desiredQty}
+                  onChange={(event) =>
+                    setNewItem((current) => ({ ...current, desiredQty: event.target.value }))
+                  }
+                />
+                <input
+                  className="input-shell"
+                  inputMode="decimal"
+                  placeholder="Preco"
+                  value={newItem.estimatedUnitPrice}
+                  onChange={(event) =>
+                    setNewItem((current) => ({
+                      ...current,
+                      estimatedUnitPrice: event.target.value,
+                    }))
+                  }
+                />
+                <Button isLoading={createMutation.isPending} onClick={addManualItem}>
+                  Adicionar agora
+                </Button>
+              </div>
+            </div>
+
             <div className="mt-5 hidden gap-3 sm:grid-cols-3 md:grid">
               <div className="rounded-[24px] bg-secondary/55 px-4 py-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
@@ -776,10 +1035,10 @@ export function ShoppingListPage() {
               ) : visibleItems.length ? (
                 <ShoppingModeEditor
                   items={visibleItems}
-                  showPriceField={showShoppingPriceField}
                   pendingItemIds={pendingItemIds}
-                  onDeleteItem={(id) => deleteMutation.mutate(id)}
+                  showPriceField={showShoppingPriceField}
                   onToggleChecked={toggleShoppingModeChecked}
+                  onRequestDelete={(item) => setPendingDeleteShoppingItem(item)}
                   onUpdateDraft={updateShoppingDraft}
                 />
               ) : (
@@ -1011,6 +1270,32 @@ export function ShoppingListPage() {
         onConfirm={() => clearListMutation.mutate()}
       />
 
+      <ConfirmModal
+        cancelLabel="Voltar"
+        confirmLabel="Apagar item"
+        description={
+          pendingDeleteShoppingItem
+            ? `O item ${pendingDeleteShoppingItem.name} sera removido da lista de compras.`
+            : ""
+        }
+        footerNote="Use isso quando desistir da compra deste item."
+        isLoading={
+          pendingDeleteShoppingItem
+            ? deleteMutation.isPending &&
+              pendingItemIds.includes(pendingDeleteShoppingItem.shopping_list_item_id)
+            : false
+        }
+        isOpen={Boolean(pendingDeleteShoppingItem)}
+        title="Apagar item da lista?"
+        onCancel={() => setPendingDeleteShoppingItem(null)}
+        onConfirm={() => {
+          if (!pendingDeleteShoppingItem) return;
+          deleteMutation.mutate(pendingDeleteShoppingItem.shopping_list_item_id, {
+            onSettled: () => setPendingDeleteShoppingItem(null),
+          });
+        }}
+      />
+
       {isShoppingMode ? (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border/10 bg-white/92 px-4 py-4 backdrop-blur sm:px-6">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
@@ -1038,6 +1323,13 @@ export function ShoppingListPage() {
             )}
           </div>
         </div>
+      ) : null}
+
+      {isShoppingMode ? (
+        <ShoppingListSaveFab
+          disabled={shoppingListQuery.isLoading || !visibleItems.length || isSavingShoppingMode}
+          onSave={handleManualSave}
+        />
       ) : null}
 
       {!isShoppingMode && visibleItems.length ? (

@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiClient, ApiClientError } from "../../lib/api/apiClient";
 import { clearStoredAuth, loadStoredAuth, saveStoredAuth } from "../../lib/auth/storage";
@@ -28,6 +28,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const tokenRef = useRef<string | null>(null);
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     const stored = loadStoredAuth();
@@ -39,6 +41,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(stored.user);
   }, []);
 
+  useEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
+
   function clearAuthState() {
     // Auth transitions must drop cached household-scoped data to avoid stale IDs leaking between sessions.
     queryClient.clear();
@@ -48,12 +54,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function refreshUserWithToken(activeToken: string) {
-    const me = await apiClient<AuthUser>("/auth/me", {
+    if (refreshInFlightRef.current) {
+      return refreshInFlightRef.current;
+    }
+
+    const refreshRequest = apiClient<AuthUser>("/auth/me", {
       method: "GET",
       token: activeToken,
-    });
-    setUser(me);
-    saveStoredAuth({ token: activeToken, user: me });
+    })
+      .then((me) => {
+        setUser(me);
+        saveStoredAuth({ token: activeToken, user: me });
+      })
+      .finally(() => {
+        refreshInFlightRef.current = null;
+      });
+
+    refreshInFlightRef.current = refreshRequest;
+    return refreshRequest;
   }
 
   useEffect(() => {
