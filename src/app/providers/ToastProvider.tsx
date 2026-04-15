@@ -19,6 +19,8 @@ type ToastState = {
   variant: ToastVariant;
 };
 
+const TOAST_DURATION_MS = 2600;
+
 type ToastContextValue = {
   showToast: (message: string, variant?: ToastVariant) => void;
 };
@@ -40,7 +42,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!toasts.length) return;
     const timers = toasts.map((toast) =>
-      window.setTimeout(() => removeToast(toast.id), 4000),
+      window.setTimeout(() => removeToast(toast.id), TOAST_DURATION_MS),
     );
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [removeToast, toasts]);
@@ -53,10 +55,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={value}>
       {children}
       {createPortal(
-        <div className="pointer-events-none fixed inset-x-0 top-20 z-[70] mx-auto flex w-full max-w-md flex-col gap-3 px-4">
+        <div className="pointer-events-none fixed inset-x-0 top-4 z-[70] mx-auto flex w-full max-w-sm flex-col gap-2 px-4">
           {toasts.map((toast) => (
             <div key={toast.id} className="pointer-events-auto">
               <Toast
+                durationMs={TOAST_DURATION_MS}
                 message={toast.message}
                 variant={toast.variant}
                 onClose={() => removeToast(toast.id)}
