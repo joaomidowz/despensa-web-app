@@ -261,12 +261,27 @@ export function ShoppingListPage() {
     if (!isShoppingMode) return;
 
     const items = baseShoppingListItems.items;
-    setShoppingModeDrafts(
-      Object.fromEntries(items.map((item) => [item.shopping_list_item_id, buildDraftFromItem(item)])),
-    );
-    setShoppingModeCheckedIds(
-      items.filter((item) => item.checked).map((item) => item.shopping_list_item_id),
-    );
+    const itemIds = new Set(items.map((item) => item.shopping_list_item_id));
+
+    setShoppingModeDrafts((current) => {
+      const nextDrafts: DraftMap = {};
+
+      for (const item of items) {
+        nextDrafts[item.shopping_list_item_id] =
+          current[item.shopping_list_item_id] ?? buildDraftFromItem(item);
+      }
+
+      return nextDrafts;
+    });
+
+    setShoppingModeCheckedIds((current) => {
+      const preservedChecked = current.filter((id) => itemIds.has(id));
+      const checkedFromItems = items
+        .filter((item) => item.checked && !preservedChecked.includes(item.shopping_list_item_id))
+        .map((item) => item.shopping_list_item_id);
+
+      return [...preservedChecked, ...checkedFromItems];
+    });
   }, [baseShoppingListItems.items, isShoppingMode]);
 
   useEffect(() => {
@@ -414,6 +429,12 @@ export function ShoppingListPage() {
       }),
     onSuccess: (createdItem) => {
       replaceShoppingListItems((current) => [createdItem, ...current]);
+      if (isShoppingMode) {
+        setShoppingModeDrafts((current) => ({
+          ...current,
+          [createdItem.shopping_list_item_id]: buildDraftFromItem(createdItem),
+        }));
+      }
       setNewItem({
         name: "",
         category: "",
@@ -900,6 +921,70 @@ export function ShoppingListPage() {
               >
                 {showShoppingPriceField ? "Ocultar valor" : "Mostrar valor"}
               </Button>
+            </div>
+
+            <div className="mt-5 rounded-[24px] bg-secondary/55 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+                    Adicao rapida durante a compra
+                  </p>
+                  <h3 className="mt-1 text-lg font-bold text-ink">
+                    Esqueceu um item? Adicione sem sair do modo compra.
+                  </h3>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1fr)_7rem_9rem_auto]">
+                <input
+                  className="input-shell"
+                  placeholder="Nome do item"
+                  value={newItem.name}
+                  onChange={(event) =>
+                    setNewItem((current) => ({ ...current, name: event.target.value }))
+                  }
+                />
+                <input
+                  className="input-shell"
+                  placeholder="Tipo do produto"
+                  value={newItem.category}
+                  onChange={(event) =>
+                    setNewItem((current) => ({ ...current, category: event.target.value }))
+                  }
+                />
+                <input
+                  className="input-shell"
+                  placeholder="Anotacao opcional"
+                  value={newItem.notes}
+                  onChange={(event) =>
+                    setNewItem((current) => ({ ...current, notes: event.target.value }))
+                  }
+                />
+                <input
+                  className="input-shell"
+                  inputMode="decimal"
+                  placeholder="Qtd"
+                  value={newItem.desiredQty}
+                  onChange={(event) =>
+                    setNewItem((current) => ({ ...current, desiredQty: event.target.value }))
+                  }
+                />
+                <input
+                  className="input-shell"
+                  inputMode="decimal"
+                  placeholder="Preco"
+                  value={newItem.estimatedUnitPrice}
+                  onChange={(event) =>
+                    setNewItem((current) => ({
+                      ...current,
+                      estimatedUnitPrice: event.target.value,
+                    }))
+                  }
+                />
+                <Button isLoading={createMutation.isPending} onClick={addManualItem}>
+                  Adicionar agora
+                </Button>
+              </div>
             </div>
 
             <div className="mt-5 hidden gap-3 sm:grid-cols-3 md:grid">
