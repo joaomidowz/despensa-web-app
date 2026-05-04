@@ -34,6 +34,7 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
   const location = useLocation();
   const { isAuthenticated, signOut, user } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [hasAvatarError, setHasAvatarError] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(
     document.documentElement.dataset.theme === "dark" ? "dark" : "light",
@@ -47,6 +48,7 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
 
   useEffect(() => {
     setIsMenuOpen(false);
+    setIsProfileMenuOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -84,7 +86,8 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
   async function handleSignOut() {
     await signOut();
     setIsMenuOpen(false);
-    navigate("/auth");
+    setIsProfileMenuOpen(false);
+    navigate("/auth", { replace: true });
   }
 
   function goTo(path: string) {
@@ -175,21 +178,16 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
             ) : null}
 
             {isAuthenticated && user ? (
-              <div className="flex items-center gap-3">
-                <Link
-                  className="hidden text-sm font-medium text-muted transition hover:text-tertiary lg:inline-flex"
-                  to="/app"
-                >
-                  Home
-                </Link>
+              <div className="relative flex items-center gap-3">
                 <div className="hidden text-right sm:block">
                   <p className="text-sm font-semibold text-tertiary">{user.name}</p>
                   <p className="text-xs text-muted">{user.email}</p>
                 </div>
-                <Link
+                <button
                   aria-label="Abrir perfil"
                   className="rounded-full focus:outline-none focus:ring-2 focus:ring-primary"
-                  to="/app/profile"
+                  type="button"
+                  onClick={() => setIsProfileMenuOpen((current) => !current)}
                 >
                   {user.avatar_url && !hasAvatarError ? (
                     <img
@@ -209,10 +207,31 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
                       {displayInitial}
                     </div>
                   )}
-                </Link>
-                <button className="hidden text-sm font-medium text-muted transition hover:text-tertiary lg:inline-flex" type="button" onClick={() => void handleSignOut()}>
-                  Sair
                 </button>
+                {isProfileMenuOpen ? (
+                  <div className="absolute right-0 top-14 z-50 hidden w-52 rounded-2xl border border-border/20 bg-card p-2 shadow-xl lg:block">
+                    <button
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-ink transition hover:bg-secondary"
+                      type="button"
+                      onClick={() => goTo("/app/profile")}
+                    >
+                      <span className="material-symbols-outlined text-base" aria-hidden="true">
+                        account_circle
+                      </span>
+                      Meu perfil
+                    </button>
+                    <button
+                      className="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50 dark:hover:bg-red-950/30"
+                      type="button"
+                      onClick={() => void handleSignOut()}
+                    >
+                      <span className="material-symbols-outlined text-base text-red-600" aria-hidden="true">
+                        logout
+                      </span>
+                      Sair
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="h-11 w-11" aria-hidden="true" />
@@ -269,8 +288,19 @@ export function Header({ leftSlot = "back", title = "Gestor de Despensa" }: Head
                 label={theme === "dark" ? "Modo claro" : "Modo escuro"}
                 onClick={toggleTheme}
               />
-              <MobileNavButton icon="logout" label="Sair" onClick={() => void handleSignOut()} />
             </nav>
+            <div className="mt-auto border-t border-border/10 pt-4">
+              <button
+                className="flex min-h-14 w-full items-center gap-3 rounded-2xl border border-red-200 bg-red-50/60 px-4 text-left text-red-600 transition hover:bg-red-100/70 dark:border-red-900/40 dark:bg-red-950/20"
+                type="button"
+                onClick={() => void handleSignOut()}
+              >
+                <span className="material-symbols-outlined text-red-600" aria-hidden="true">
+                  logout
+                </span>
+                <span className="text-sm font-semibold text-red-600">Sair</span>
+              </button>
+            </div>
           </aside>
         </div>
       ) : null}
