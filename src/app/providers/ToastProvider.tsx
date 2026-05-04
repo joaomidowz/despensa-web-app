@@ -10,6 +10,7 @@ import {
 import { createPortal } from "react-dom";
 import { Toast } from "../../components/feedback/Toast";
 import { subscribeToApiErrors } from "../../lib/api/apiClient";
+import { useVersionCheck } from "../hooks/useVersionCheck";
 
 type ToastVariant = "error" | "success" | "info";
 
@@ -48,6 +49,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, [removeToast, toasts]);
 
   useEffect(() => subscribeToApiErrors((error) => showToast(error.message, "error")), [showToast]);
+  useVersionCheck(showToast);
 
   const value = useMemo(() => ({ showToast }), [showToast]);
 
