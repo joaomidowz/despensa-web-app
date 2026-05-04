@@ -145,6 +145,7 @@ export type UpdateReceiptRequest = {
 };
 
 export type ShoppingListCatalogItemResponse = {
+  canonical_name: string;
   name: string;
   category?: string | null;
   purchase_count: number;

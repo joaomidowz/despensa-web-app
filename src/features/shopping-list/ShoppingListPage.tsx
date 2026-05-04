@@ -1224,7 +1224,7 @@ export function ShoppingListPage() {
                 ) : catalogQuery.data?.length ? (
                   catalogQuery.data.map((item) => (
                     <div
-                      key={`${item.name}-${item.last_purchased_at}`}
+                      key={`${item.canonical_name}-${item.last_purchased_at}`}
                       className="flex items-start justify-between gap-3 rounded-2xl bg-secondary/70 px-4 py-4"
                     >
                       <div>
