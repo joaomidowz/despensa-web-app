@@ -4,6 +4,7 @@ import { useAuth } from "../../app/providers/AuthProvider";
 import { useToast } from "../../app/providers/ToastProvider";
 import { ManualCheckoutPanel } from "../../components/carrinho/ManualCheckoutPanel";
 import { PasteListImporter } from "../../components/carrinho/PasteListImporter";
+import { ShoppingListHistorySuggestions } from "../../components/carrinho/ShoppingListHistorySuggestions";
 import { ShoppingListItemCard } from "../../components/carrinho/ShoppingListItemCard";
 import { ShoppingModeEditor } from "../../components/carrinho/ShoppingModeEditor";
 import { ShoppingListSaveFab } from "../../components/carrinho/ShoppingListSaveFab";
@@ -12,6 +13,7 @@ import {
   ManualCheckoutItem,
   ParsedShoppingListItem,
   buildDraftFromItem,
+  formatCurrencyInput,
   getEstimatedLineTotal,
   toNumber,
 } from "../../components/carrinho/types";
@@ -37,12 +39,37 @@ import {
   saveCheckedDelta,
   ShoppingListCheckedDelta,
 } from "../../lib/shopping-list/autoSave";
+import {
+  CategoryOverrideMap,
+  loadCategoryOverrides,
+  rememberCategoryOverride,
+  suggestCategoryForProduct,
+} from "../../lib/shopping-list/categorySuggestions";
+import {
+  buildShoppingHistoryIndex,
+  findShoppingHistorySuggestions,
+} from "../../lib/shopping-list/historySuggestions";
 import { clearPendingShoppingPurchase } from "../../lib/shopping-list/purchaseSession";
 import { formatCurrency, formatDateTime, formatQuantity } from "../../lib/utils/formatters";
 
 type CheckoutChoice = "manual" | "scan" | null;
 
 type DraftMap = Record<string, DraftState>;
+type CategoryEntryMode = "auto" | "manual" | null;
+type DraftCategoryResult = {
+  draft: DraftState;
+  categoryMode: CategoryEntryMode;
+};
+
+function buildEmptyDraft(): DraftState {
+  return {
+    name: "",
+    category: "",
+    notes: "",
+    desiredQty: "1",
+    estimatedUnitPrice: "",
+  };
+}
 
 function formatDateTimeInput(date: Date) {
   const year = date.getFullYear();
@@ -104,8 +131,36 @@ function mergeItemWithDraft(
   };
 }
 
+function applySuggestedCategoryToDraft(
+  draft: DraftState,
+  name: string,
+  categoryMode: CategoryEntryMode,
+  overrides: CategoryOverrideMap,
+): DraftCategoryResult {
+  if (categoryMode === "manual") {
+    return {
+      draft: { ...draft, name },
+      categoryMode,
+    };
+  }
+
+  const suggestion = suggestCategoryForProduct(name, overrides);
+  return {
+    draft: {
+      ...draft,
+      name,
+      category: suggestion?.category ?? "",
+    },
+    categoryMode: suggestion ? "auto" : null,
+  };
+}
+
+function getCatalogItemName(item: ShoppingListCatalogItemResponse) {
+  return item.name || item.canonical_name;
+}
+
 export function ShoppingListPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const scanSectionRef = useRef<HTMLDivElement | null>(null);
@@ -117,21 +172,13 @@ export function ShoppingListPage() {
   const didHydrateCheckedQueueRef = useRef(false);
   const [isShoppingMode, setIsShoppingMode] = useState(false);
   const [checkoutChoice, setCheckoutChoice] = useState<CheckoutChoice>(null);
-  const [newItem, setNewItem] = useState<DraftState>({
-    name: "",
-    category: "",
-    notes: "",
-    desiredQty: "1",
-    estimatedUnitPrice: "",
-  });
+  const [newItem, setNewItem] = useState<DraftState>(buildEmptyDraft);
+  const [newItemCategoryMode, setNewItemCategoryMode] = useState<CategoryEntryMode>(null);
+  const [newItemHistorySource, setNewItemHistorySource] =
+    useState<ShoppingListCatalogItemResponse | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingDraft, setEditingDraft] = useState<DraftState>({
-    name: "",
-    category: "",
-    notes: "",
-    desiredQty: "1",
-    estimatedUnitPrice: "",
-  });
+  const [editingDraft, setEditingDraft] = useState<DraftState>(buildEmptyDraft);
+  const [editingCategoryMode, setEditingCategoryMode] = useState<CategoryEntryMode>(null);
   const [pendingItemIds, setPendingItemIds] = useState<string[]>([]);
   const [isSavingShoppingMode, setIsSavingShoppingMode] = useState(false);
   const [shoppingModeDrafts, setShoppingModeDrafts] = useState<DraftMap>({});
@@ -145,6 +192,11 @@ export function ShoppingListPage() {
     receipt_date: formatDateTimeInput(new Date()),
     items: [] as ManualCheckoutItem[],
   });
+  const [categoryOverrideRevision, setCategoryOverrideRevision] = useState(0);
+  const categoryOverrides = useMemo(
+    () => loadCategoryOverrides(user?.household_id),
+    [categoryOverrideRevision, user?.household_id],
+  );
 
   const suggestedQuery = useQuery({
     queryKey: ["inventory", "shopping-list"],
@@ -163,6 +215,16 @@ export function ShoppingListPage() {
     queryFn: () => apiClient<ShoppingListCatalogItemResponse[]>("/shopping-list/catalog", { token }),
     enabled: Boolean(token),
   });
+
+  const historyIndex = useMemo(
+    () => buildShoppingHistoryIndex(catalogQuery.data ?? []),
+    [catalogQuery.data],
+  );
+
+  const newItemHistorySuggestions = useMemo(
+    () => findShoppingHistorySuggestions(historyIndex, newItem.name),
+    [historyIndex, newItem.name],
+  );
 
   const baseShoppingListItems = useMemo(() => {
     const result = overlayLocalCheckedState(shoppingListQuery.data ?? []);
@@ -434,6 +496,85 @@ export function ShoppingListPage() {
     );
   }
 
+  function rememberManualCategory(draft: DraftState) {
+    const nextOverrides = rememberCategoryOverride(
+      user?.household_id,
+      draft.name,
+      draft.category,
+    );
+    if (nextOverrides) {
+      setCategoryOverrideRevision((current) => current + 1);
+    }
+  }
+
+  function changeNewItemName(name: string) {
+    setNewItemHistorySource((current) => (current && current.name !== name ? null : current));
+    const result = applySuggestedCategoryToDraft(
+      newItem,
+      name,
+      newItemCategoryMode,
+      categoryOverrides,
+    );
+    setNewItem(result.draft);
+    setNewItemCategoryMode(result.categoryMode);
+  }
+
+  function changeNewItemCategory(category: string) {
+    setNewItem((current) => ({ ...current, category }));
+    setNewItemCategoryMode("manual");
+  }
+
+  function resetNewItemDraft() {
+    setNewItem(buildEmptyDraft());
+    setNewItemCategoryMode(null);
+    setNewItemHistorySource(null);
+  }
+
+  function selectHistorySuggestion(item: ShoppingListCatalogItemResponse) {
+    const name = getCatalogItemName(item);
+    if (!name) return;
+
+    const categorySuggestion = suggestCategoryForProduct(name, categoryOverrides);
+    const category =
+      categorySuggestion?.source === "manual_override"
+        ? categorySuggestion.category
+        : item.category ?? categorySuggestion?.category ?? "";
+
+    setNewItem((current) => ({
+      ...current,
+      name,
+      category,
+      estimatedUnitPrice: formatCurrencyInput(item.last_unit_price),
+    }));
+    setNewItemCategoryMode(category ? "auto" : null);
+    setNewItemHistorySource(item);
+  }
+
+  function changeEditingDraft(nextDraft: DraftState) {
+    const nameChanged = nextDraft.name !== editingDraft.name;
+    const categoryChanged = nextDraft.category !== editingDraft.category;
+
+    if (categoryChanged) {
+      setEditingDraft(nextDraft);
+      setEditingCategoryMode("manual");
+      return;
+    }
+
+    if (nameChanged) {
+      const result = applySuggestedCategoryToDraft(
+        nextDraft,
+        nextDraft.name,
+        editingCategoryMode,
+        categoryOverrides,
+      );
+      setEditingDraft(result.draft);
+      setEditingCategoryMode(result.categoryMode);
+      return;
+    }
+
+    setEditingDraft(nextDraft);
+  }
+
   const createMutation = useMutation({
     mutationFn: (payload: CreateShoppingListItemRequest) =>
       apiClient<ShoppingListItemResponse>("/shopping-list/items", {
@@ -449,13 +590,7 @@ export function ShoppingListPage() {
           [createdItem.shopping_list_item_id]: buildDraftFromItem(createdItem),
         }));
       }
-      setNewItem({
-        name: "",
-        category: "",
-        notes: "",
-        desiredQty: "1",
-        estimatedUnitPrice: "",
-      });
+      resetNewItemDraft();
       showToast("Item adicionado na lista de compras.", "success");
     },
   });
@@ -490,6 +625,7 @@ export function ShoppingListPage() {
             token,
             body: {
               name: item.name,
+              category: item.category ?? suggestCategoryForProduct(item.name, categoryOverrides)?.category ?? null,
               desired_qty: item.desired_qty,
               notes: item.notes,
             },
@@ -673,6 +809,9 @@ export function ShoppingListPage() {
       showToast("Revise nome, categoria, quantidade e preco estimado.", "error");
       return;
     }
+    if (newItemCategoryMode === "manual") {
+      rememberManualCategory(newItem);
+    }
     createMutation.mutate(payload);
   }
 
@@ -684,9 +823,19 @@ export function ShoppingListPage() {
   }
 
   function addExistingItem(item: ShoppingListCatalogItemResponse) {
+    const name = getCatalogItemName(item);
+    if (!name) {
+      showToast("Nao foi possivel adicionar este item do historico.", "error");
+      return;
+    }
+
+    const suggestion = suggestCategoryForProduct(name, categoryOverrides);
     createMutation.mutate({
-      name: item.name,
-      category: item.category ?? null,
+      name,
+      category:
+        suggestion?.source === "manual_override"
+          ? suggestion.category
+          : item.category ?? suggestion?.category ?? null,
       desired_qty: 1,
       estimated_unit_price: item.last_unit_price ? toNumber(item.last_unit_price) : null,
     });
@@ -703,6 +852,7 @@ export function ShoppingListPage() {
   function beginEdit(item: ShoppingListItemResponse) {
     setEditingId(item.shopping_list_item_id);
     setEditingDraft(buildDraftFromItem(item));
+    setEditingCategoryMode(item.category ? "manual" : null);
   }
 
   function saveItem(id: string) {
@@ -712,8 +862,18 @@ export function ShoppingListPage() {
       showToast("Revise nome, categoria, quantidade e preco estimado.", "error");
       return;
     }
+    const originalItem = visibleItems.find((item) => item.shopping_list_item_id === id);
+    const originalDraft = originalItem ? buildDraftFromItem(originalItem) : null;
+    if (
+      editingCategoryMode === "manual" &&
+      originalDraft &&
+      (editingDraft.name !== originalDraft.name || editingDraft.category !== originalDraft.category)
+    ) {
+      rememberManualCategory(editingDraft);
+    }
     updateMutation.mutate({ id, payload });
     setEditingId(null);
+    setEditingCategoryMode(null);
   }
 
   function toggleChecked(item: ShoppingListItemResponse) {
@@ -949,22 +1109,30 @@ export function ShoppingListPage() {
               </div>
 
               <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1fr)_7rem_9rem_auto]">
-                <input
-                  className="input-shell"
-                  placeholder="Nome do item"
-                  value={newItem.name}
-                  onChange={(event) =>
-                    setNewItem((current) => ({ ...current, name: event.target.value }))
-                  }
-                />
-                <input
-                  className="input-shell"
-                  placeholder="Tipo do produto"
-                  value={newItem.category}
-                  onChange={(event) =>
-                    setNewItem((current) => ({ ...current, category: event.target.value }))
-                  }
-                />
+                <div className="min-w-0">
+                  <input
+                    className="input-shell"
+                    placeholder="Nome do item"
+                    value={newItem.name}
+                    onChange={(event) => changeNewItemName(event.target.value)}
+                  />
+                  <ShoppingListHistorySuggestions
+                    selectedItem={newItemHistorySource}
+                    suggestions={newItemHistorySource ? [] : newItemHistorySuggestions}
+                    onSelect={selectHistorySuggestion}
+                  />
+                </div>
+                <div className="grid min-w-0 gap-1">
+                  <input
+                    className="input-shell"
+                    placeholder="Tipo do produto"
+                    value={newItem.category}
+                    onChange={(event) => changeNewItemCategory(event.target.value)}
+                  />
+                  {newItemCategoryMode === "auto" ? (
+                    <span className="px-1 text-xs font-semibold text-tertiary">Auto</span>
+                  ) : null}
+                </div>
                 <input
                   className="input-shell"
                   placeholder="Anotacao opcional"
@@ -1070,18 +1238,30 @@ export function ShoppingListPage() {
         <>
           <SectionCard>
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1fr)_9rem_10rem_auto]">
-              <input
-                className="input-shell"
-                placeholder="Nome do item"
-                value={newItem.name}
-                onChange={(event) => setNewItem((current) => ({ ...current, name: event.target.value }))}
-              />
-              <input
-                className="input-shell"
-                placeholder="Tipo do produto"
-                value={newItem.category}
-                onChange={(event) => setNewItem((current) => ({ ...current, category: event.target.value }))}
-              />
+              <div className="min-w-0">
+                <input
+                  className="input-shell"
+                  placeholder="Nome do item"
+                  value={newItem.name}
+                  onChange={(event) => changeNewItemName(event.target.value)}
+                />
+                <ShoppingListHistorySuggestions
+                  selectedItem={newItemHistorySource}
+                  suggestions={newItemHistorySource ? [] : newItemHistorySuggestions}
+                  onSelect={selectHistorySuggestion}
+                />
+              </div>
+              <div className="grid min-w-0 gap-1">
+                <input
+                  className="input-shell"
+                  placeholder="Tipo do produto"
+                  value={newItem.category}
+                  onChange={(event) => changeNewItemCategory(event.target.value)}
+                />
+                {newItemCategoryMode === "auto" ? (
+                  <span className="px-1 text-xs font-semibold text-tertiary">Auto</span>
+                ) : null}
+              </div>
               <input
                 className="input-shell"
                 placeholder="Anotacao opcional"
@@ -1197,10 +1377,14 @@ export function ShoppingListPage() {
                       isEditing={editingId === item.shopping_list_item_id}
                       item={item}
                       onBeginEdit={() => beginEdit(item)}
-                      onCancelEdit={() => setEditingId(null)}
-                      onChangeDraft={setEditingDraft}
+                      onCancelEdit={() => {
+                        setEditingId(null);
+                        setEditingCategoryMode(null);
+                      }}
+                      onChangeDraft={changeEditingDraft}
                       onDelete={() => deleteMutation.mutate(item.shopping_list_item_id)}
                       onSave={() => saveItem(item.shopping_list_item_id)}
+                      categoryIsAuto={editingCategoryMode === "auto"}
                     />
                   ))
                 ) : (

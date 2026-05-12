@@ -22,12 +22,14 @@ export function ShoppingListItemCard({
   onChangeDraft,
   onDelete,
   onSave,
+  categoryIsAuto = false,
 }: {
   item: ShoppingListItemResponse;
   draft: DraftState;
   isBusy: boolean;
   isEditing: boolean;
   isShoppingMode?: boolean;
+  categoryIsAuto?: boolean;
   onBeginEdit: () => void;
   onCancelEdit: () => void;
   onChangeDraft: (draft: DraftState) => void;
@@ -57,6 +59,11 @@ export function ShoppingListItemCard({
                   value={draft.category}
                   onChange={(event) => onChangeDraft({ ...draft, category: event.target.value })}
                 />
+                {categoryIsAuto ? (
+                  <span className="text-xs font-semibold normal-case tracking-normal text-tertiary">
+                    Auto
+                  </span>
+                ) : null}
               </label>
               <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted">
                 Quantidade

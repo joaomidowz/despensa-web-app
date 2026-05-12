@@ -17,6 +17,7 @@ export type ManualCheckoutItem = {
 
 export type ParsedShoppingListItem = {
   name: string;
+  category?: string | null;
   desired_qty: number;
   notes: string | null;
 };

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useToast } from "../../app/providers/ToastProvider";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { InventoryTableRow } from "../../components/inventory/InventoryTableRow";
@@ -7,11 +7,56 @@ import { Button } from "../../components/ui/Button";
 import { SectionCard } from "../../components/ui/SectionCard";
 import { apiClient } from "../../lib/api/apiClient";
 import { CreateInventoryItemRequest, InventoryItemResponse } from "../../lib/api/contracts";
+import {
+  CategoryOverrideMap,
+  loadCategoryOverrides,
+  rememberCategoryOverride,
+  suggestCategoryForProduct,
+} from "../../lib/shopping-list/categorySuggestions";
 
 type InventoryTab = "in-stock" | "missing";
+type CategoryEntryMode = "auto" | "manual" | null;
+type InventoryCategoryResult = {
+  item: {
+    product_name: string;
+    category: string;
+    current_qty: string;
+    min_qty: string;
+  };
+  categoryMode: CategoryEntryMode;
+};
+
+function applySuggestedCategory(
+  item: {
+    product_name: string;
+    category: string;
+    current_qty: string;
+    min_qty: string;
+  },
+  productName: string,
+  categoryMode: CategoryEntryMode,
+  overrides: CategoryOverrideMap,
+): InventoryCategoryResult {
+  if (categoryMode === "manual") {
+    return {
+      item: { ...item, product_name: productName },
+      categoryMode,
+    };
+  }
+
+  const suggestion = suggestCategoryForProduct(productName, overrides);
+  return {
+    item: {
+      ...item,
+      product_name: productName,
+      category: suggestion?.category ?? "",
+    },
+    categoryMode: suggestion ? "auto" : null,
+  };
+}
 
 export function InventoryPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const [manageMode, setManageMode] = useState(false);
@@ -23,6 +68,50 @@ export function InventoryPage() {
     current_qty: "1",
     min_qty: "1",
   });
+  const [newItemCategoryMode, setNewItemCategoryMode] = useState<CategoryEntryMode>(null);
+  const [categoryOverrideRevision, setCategoryOverrideRevision] = useState(0);
+  const categoryOverrides = useMemo(
+    () => loadCategoryOverrides(user?.household_id),
+    [categoryOverrideRevision, user?.household_id],
+  );
+
+  function resetNewItem() {
+    setNewItem({
+      product_name: "",
+      category: "",
+      current_qty: "1",
+      min_qty: "1",
+    });
+    setNewItemCategoryMode(null);
+  }
+
+  function changeProductName(productName: string) {
+    const result = applySuggestedCategory(
+      newItem,
+      productName,
+      newItemCategoryMode,
+      categoryOverrides,
+    );
+    setNewItem(result.item);
+    setNewItemCategoryMode(result.categoryMode);
+  }
+
+  function changeCategory(category: string) {
+    setNewItem((current) => ({ ...current, category }));
+    setNewItemCategoryMode("manual");
+  }
+
+  function rememberManualCategory() {
+    const nextOverrides = rememberCategoryOverride(
+      user?.household_id,
+      newItem.product_name,
+      newItem.category,
+    );
+    if (nextOverrides) {
+      setCategoryOverrideRevision((current) => current + 1);
+    }
+  }
+
   const inventoryQuery = useQuery({
     queryKey: ["inventory", "list"],
     queryFn: () => apiClient<InventoryItemResponse[]>("/inventory", { token }),
@@ -44,12 +133,7 @@ export function InventoryPage() {
       await queryClient.invalidateQueries({ queryKey: ["inventory", "list"] });
       await queryClient.invalidateQueries({ queryKey: ["inventory", "shopping-list"] });
       await queryClient.invalidateQueries({ queryKey: ["overview"] });
-      setNewItem({
-        product_name: "",
-        category: "",
-        current_qty: "1",
-        min_qty: "1",
-      });
+      resetNewItem();
       setShowCreateForm(false);
       showToast("Item criado no inventario.", "success");
     },
@@ -64,6 +148,10 @@ export function InventoryPage() {
     if (!product_name || !category || Number.isNaN(current_qty) || Number.isNaN(min_qty)) {
       showToast("Preencha nome, categoria e quantidades validas.", "error");
       return;
+    }
+
+    if (newItemCategoryMode === "manual") {
+      rememberManualCategory();
     }
 
     createMutation.mutate({
@@ -150,9 +238,7 @@ export function InventoryPage() {
                 className="input-shell"
                 placeholder="Nome do produto"
                 value={newItem.product_name}
-                onChange={(event) =>
-                  setNewItem((current) => ({ ...current, product_name: event.target.value }))
-                }
+                onChange={(event) => changeProductName(event.target.value)}
               />
             </label>
             <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted">
@@ -161,10 +247,13 @@ export function InventoryPage() {
                 className="input-shell"
                 placeholder="Categoria"
                 value={newItem.category}
-                onChange={(event) =>
-                  setNewItem((current) => ({ ...current, category: event.target.value }))
-                }
+                onChange={(event) => changeCategory(event.target.value)}
               />
+              {newItemCategoryMode === "auto" ? (
+                <span className="text-xs font-semibold normal-case tracking-normal text-tertiary">
+                  Auto
+                </span>
+              ) : null}
             </label>
             <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted">
               Quantidade atual
