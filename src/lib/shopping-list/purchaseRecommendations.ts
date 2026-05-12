@@ -36,6 +36,10 @@ function normalizeRecommendationTerm(value: string | null | undefined) {
     .trim();
 }
 
+export function getPurchaseRecommendationFeedbackKey(value: string | null | undefined) {
+  return normalizeRecommendationTerm(value);
+}
+
 function buildStorageKey(householdId?: string | null) {
   return `${RECOMMENDATION_FEEDBACK_STORAGE_PREFIX}.${householdId ?? "local"}`;
 }
@@ -91,6 +95,13 @@ function isSnoozed(feedback: PurchaseRecommendationFeedbackEntry | undefined, no
   if (!feedback || feedback.action !== "later" || !feedback.snoozeUntil) return false;
   const snoozeDate = getDate(feedback.snoozeUntil);
   return Boolean(snoozeDate && snoozeDate.getTime() > now.getTime());
+}
+
+export function shouldHidePurchaseRecommendation(
+  feedback: PurchaseRecommendationFeedbackEntry | undefined,
+  now = new Date(),
+) {
+  return feedback?.action === "dismissed" || isSnoozed(feedback, now);
 }
 
 function addDays(date: Date, days: number) {
@@ -213,6 +224,25 @@ export function rememberPurchaseRecommendationFeedback(
   now = new Date(),
 ): PurchaseRecommendationFeedbackMap | null {
   const key = getCatalogItemRecommendationKey(item);
+  return rememberPurchaseRecommendationFeedbackByKey(householdId, key, action, now);
+}
+
+export function rememberPurchaseRecommendationFeedbackForName(
+  householdId: string | null | undefined,
+  productName: string,
+  action: PurchaseRecommendationFeedbackAction,
+  now = new Date(),
+): PurchaseRecommendationFeedbackMap | null {
+  const key = getPurchaseRecommendationFeedbackKey(productName);
+  return rememberPurchaseRecommendationFeedbackByKey(householdId, key, action, now);
+}
+
+function rememberPurchaseRecommendationFeedbackByKey(
+  householdId: string | null | undefined,
+  key: string,
+  action: PurchaseRecommendationFeedbackAction,
+  now: Date,
+) {
   if (!key || typeof window === "undefined") return null;
 
   const storageKey = buildStorageKey(householdId);
@@ -255,7 +285,7 @@ export function buildPurchaseRecommendations(
     if (!key || currentItemKeys.has(key)) continue;
 
     const itemFeedback = feedback[key];
-    if (itemFeedback?.action === "dismissed" || isSnoozed(itemFeedback, now)) continue;
+    if (shouldHidePurchaseRecommendation(itemFeedback, now)) continue;
 
     const existing = bestItems.get(key);
     const existingDate = getDate(existing?.last_purchased_at);

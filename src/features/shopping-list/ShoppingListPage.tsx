@@ -53,9 +53,13 @@ import {
 } from "../../lib/shopping-list/historySuggestions";
 import {
   buildPurchaseRecommendations,
+  getCatalogItemRecommendationKey,
+  getPurchaseRecommendationFeedbackKey,
   loadPurchaseRecommendationFeedback,
   type PurchaseRecommendationFeedbackAction,
   rememberPurchaseRecommendationFeedback,
+  rememberPurchaseRecommendationFeedbackForName,
+  shouldHidePurchaseRecommendation,
 } from "../../lib/shopping-list/purchaseRecommendations";
 import { clearPendingShoppingPurchase } from "../../lib/shopping-list/purchaseSession";
 import {
@@ -204,6 +208,7 @@ export function ShoppingListPage() {
   const [shoppingModeDrafts, setShoppingModeDrafts] = useState<DraftMap>({});
   const [shoppingModeCheckedIds, setShoppingModeCheckedIds] = useState<string[]>([]);
   const [showShoppingPriceField, setShowShoppingPriceField] = useState(true);
+  const [recommendationsOpenMobile, setRecommendationsOpenMobile] = useState(false);
   const [isClearListModalOpen, setIsClearListModalOpen] = useState(false);
   const [pendingDeleteShoppingItem, setPendingDeleteShoppingItem] =
     useState<ShoppingListItemResponse | null>(null);
@@ -462,15 +467,50 @@ export function ShoppingListPage() {
     [baseShoppingListItems.items, catalogQuery.data, recommendationFeedback],
   );
 
+  const restockStockByKey = useMemo(() => {
+    const result = new Map<string, number>();
+    for (const item of suggestedQuery.data ?? []) {
+      const key = getPurchaseRecommendationFeedbackKey(item.product.name);
+      if (!key) continue;
+      const currentQty = toNumber(item.current_qty);
+      result.set(key, Number.isNaN(currentQty) ? Number.POSITIVE_INFINITY : currentQty);
+    }
+    return result;
+  }, [suggestedQuery.data]);
+
   const restockSuggestions = useMemo(
-    () => (suggestedQuery.data ?? []).slice(0, 3),
-    [suggestedQuery.data],
+    () =>
+      (suggestedQuery.data ?? [])
+        .filter((item) => {
+          const key = getPurchaseRecommendationFeedbackKey(item.product.name);
+          return !shouldHidePurchaseRecommendation(recommendationFeedback[key]);
+        })
+        .slice(0, 3),
+    [recommendationFeedback, suggestedQuery.data],
   );
 
-  const historyPreviewItems = useMemo(
-    () => (catalogQuery.data ?? []).slice(0, 5),
-    [catalogQuery.data],
-  );
+  const historyPreviewItems = useMemo(() => {
+    return (catalogQuery.data ?? [])
+      .filter((item) => {
+        const key = getCatalogItemRecommendationKey(item);
+        return !shouldHidePurchaseRecommendation(recommendationFeedback[key]);
+      })
+      .sort((left, right) => {
+        const leftKey = getCatalogItemRecommendationKey(left);
+        const rightKey = getCatalogItemRecommendationKey(right);
+        const leftStock = restockStockByKey.get(leftKey);
+        const rightStock = restockStockByKey.get(rightKey);
+
+        if (leftStock !== undefined || rightStock !== undefined) {
+          if (leftStock === undefined) return 1;
+          if (rightStock === undefined) return -1;
+          if (leftStock !== rightStock) return leftStock - rightStock;
+        }
+
+        return Date.parse(right.last_purchased_at) - Date.parse(left.last_purchased_at);
+      })
+      .slice(0, 5);
+  }, [catalogQuery.data, recommendationFeedback, restockStockByKey]);
 
   const activeEstimatedTotal = useMemo(
     () => activeItems.reduce((sum, item) => sum + (getEstimatedLineTotal(item) ?? 0), 0),
@@ -567,6 +607,20 @@ export function ShoppingListPage() {
     const nextFeedback = rememberPurchaseRecommendationFeedback(
       user?.household_id,
       item,
+      action,
+    );
+    if (nextFeedback) {
+      setRecommendationFeedbackRevision((current) => current + 1);
+    }
+  }
+
+  function rememberRecommendationFeedbackForProduct(
+    productName: string,
+    action: PurchaseRecommendationFeedbackAction,
+  ) {
+    const nextFeedback = rememberPurchaseRecommendationFeedbackForName(
+      user?.household_id,
+      productName,
       action,
     );
     if (nextFeedback) {
@@ -963,12 +1017,22 @@ export function ShoppingListPage() {
 
   function snoozeRecommendation(item: ShoppingListCatalogItemResponse) {
     rememberRecommendationFeedback(item, "later");
-    showToast("Recomendacao pausada por alguns dias.", "info");
+    showToast("Item pausado por alguns dias.", "info");
   }
 
   function dismissRecommendation(item: ShoppingListCatalogItemResponse) {
     rememberRecommendationFeedback(item, "dismissed");
-    showToast("Recomendacao ocultada.", "info");
+    showToast("Item removido desta tela.", "info");
+  }
+
+  function snoozeRestockSuggestion(item: InventoryItemResponse) {
+    rememberRecommendationFeedbackForProduct(item.product.name, "later");
+    showToast("Item pausado por alguns dias.", "info");
+  }
+
+  function dismissRestockSuggestion(item: InventoryItemResponse) {
+    rememberRecommendationFeedbackForProduct(item.product.name, "dismissed");
+    showToast("Item removido desta tela.", "info");
   }
 
   function buildTemplateItemPayload(
@@ -1492,7 +1556,31 @@ export function ShoppingListPage() {
           />
 
           <SectionCard>
-            <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <button
+              className="flex w-full items-center justify-between gap-3 text-left sm:hidden"
+              type="button"
+              onClick={() => setRecommendationsOpenMobile((current) => !current)}
+            >
+              <div className="min-w-0">
+                <h2 className="text-xl font-bold">Recomendados para hoje</h2>
+                <p className="mt-1 text-sm text-muted">
+                  {purchaseRecommendations.length} sugestao(oes)
+                </p>
+              </div>
+              <span className="rounded-lg border border-border/30 p-2 text-tertiary">
+                <span
+                  className={[
+                    "material-symbols-outlined block text-[22px] transition-transform duration-200",
+                    recommendationsOpenMobile ? "rotate-180" : "",
+                  ].join(" ")}
+                  aria-hidden="true"
+                >
+                  expand_more
+                </span>
+              </span>
+            </button>
+
+            <div className="mb-5 hidden flex-col gap-2 sm:flex sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <h2 className="text-2xl font-bold">Recomendados para hoje</h2>
                 <p className="mt-2 text-sm text-muted">
@@ -1503,14 +1591,19 @@ export function ShoppingListPage() {
                 {purchaseRecommendations.length} sugestao(oes)
               </p>
             </div>
-            <ShoppingListRecommendations
-              isAdding={createMutation.isPending}
-              isLoading={catalogQuery.isLoading}
-              recommendations={purchaseRecommendations}
-              onAdd={addExistingItem}
-              onDismiss={dismissRecommendation}
-              onSnooze={snoozeRecommendation}
-            />
+
+            <div
+              className={`${recommendationsOpenMobile ? "mt-5 block" : "hidden"} sm:mt-0 sm:block`}
+            >
+              <ShoppingListRecommendations
+                isAdding={createMutation.isPending}
+                isLoading={catalogQuery.isLoading}
+                recommendations={purchaseRecommendations}
+                onAdd={addExistingItem}
+                onDismiss={dismissRecommendation}
+                onSnooze={snoozeRecommendation}
+              />
+            </div>
           </SectionCard>
 
           <SectionCard>
@@ -1609,9 +1702,6 @@ export function ShoppingListPage() {
                     Itens em status de compra, limitados aos 3 primeiros para manter o scroll leve.
                   </p>
                 </div>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
-                  {restockSuggestions.length} de {(suggestedQuery.data ?? []).length}
-                </p>
               </div>
 
               {suggestedQuery.isLoading ? (
@@ -1622,23 +1712,36 @@ export function ShoppingListPage() {
                 restockSuggestions.map((item) => (
                   <div
                     key={item.inventory_id}
-                    className="flex items-start justify-between gap-3 rounded-lg bg-secondary/70 px-4 py-4"
+                    className="flex flex-col gap-3 rounded-lg bg-secondary/70 px-4 py-4 sm:flex-row sm:items-start sm:justify-between"
                   >
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-sm font-semibold text-ink">{item.product.name}</p>
                       <p className="mt-1 text-sm text-muted">
                         {item.product.category} · atual {formatQuantity(item.current_qty)} · minimo{" "}
                         {formatQuantity(item.min_qty)}
                       </p>
                     </div>
-                    <Button
-                      isLoading={addSuggestedMutation.isPending}
-                      size="sm"
-                      variant="outline"
-                      onClick={() => addSuggestedItem(item)}
-                    >
-                      Adicionar
-                    </Button>
+                    <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
+                      <Button
+                        isLoading={addSuggestedMutation.isPending}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => addSuggestedItem(item)}
+                      >
+                        Adicionar
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => snoozeRestockSuggestion(item)}>
+                        Depois
+                      </Button>
+                      <Button
+                        className="text-red-600 hover:bg-red-50"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => dismissRestockSuggestion(item)}
+                      >
+                        Remover
+                      </Button>
+                    </div>
                   </div>
                 ))
               ) : (
@@ -1654,9 +1757,6 @@ export function ShoppingListPage() {
                     Historico recente limitado a 5 itens para previsao rapida de preco.
                   </p>
                 </div>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
-                  {historyPreviewItems.length} de {catalogQuery.data?.length ?? 0}
-                </p>
               </div>
 
               {catalogQuery.isLoading ? (
@@ -1667,9 +1767,9 @@ export function ShoppingListPage() {
                 historyPreviewItems.map((item) => (
                   <div
                     key={`${item.canonical_name || item.name}-${item.last_purchased_at}`}
-                    className="flex items-start justify-between gap-3 rounded-lg bg-secondary/70 px-4 py-4"
+                    className="flex flex-col gap-3 rounded-lg bg-secondary/70 px-4 py-4 sm:flex-row sm:items-start sm:justify-between"
                   >
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-sm font-semibold text-ink">{getCatalogItemName(item)}</p>
                       <p className="mt-1 text-sm text-muted">
                         {item.category ?? "Sem categoria"} · {item.purchase_count} compras · ultima{" "}
@@ -1680,13 +1780,27 @@ export function ShoppingListPage() {
                         {item.last_unit_price ? formatCurrency(toNumber(item.last_unit_price)) : "nao informado"}
                       </p>
                     </div>
-                    <Button
-                      isLoading={createMutation.isPending}
-                      variant="ghost"
-                      onClick={() => addExistingItem(item)}
-                    >
-                      Adicionar
-                    </Button>
+                    <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
+                      <Button
+                        isLoading={createMutation.isPending}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => addExistingItem(item)}
+                      >
+                        Adicionar
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => snoozeRecommendation(item)}>
+                        Depois
+                      </Button>
+                      <Button
+                        className="text-red-600 hover:bg-red-50"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => dismissRecommendation(item)}
+                      >
+                        Remover
+                      </Button>
+                    </div>
                   </div>
                 ))
               ) : (
