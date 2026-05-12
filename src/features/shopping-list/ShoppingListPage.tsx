@@ -462,6 +462,16 @@ export function ShoppingListPage() {
     [baseShoppingListItems.items, catalogQuery.data, recommendationFeedback],
   );
 
+  const restockSuggestions = useMemo(
+    () => (suggestedQuery.data ?? []).slice(0, 3),
+    [suggestedQuery.data],
+  );
+
+  const historyPreviewItems = useMemo(
+    () => (catalogQuery.data ?? []).slice(0, 5),
+    [catalogQuery.data],
+  );
+
   const activeEstimatedTotal = useMemo(
     () => activeItems.reduce((sum, item) => sum + (getEstimatedLineTotal(item) ?? 0), 0),
     [activeItems],
@@ -1529,148 +1539,163 @@ export function ShoppingListPage() {
             />
           </SectionCard>
 
-          <div className="grid gap-4 xl:grid-cols-3">
-            <SectionCard>
-              <h2 className="text-2xl font-bold">Reposicao do estoque</h2>
-              <p className="mt-2 text-sm text-muted">
-                Itens do estoque que ja entraram em status de compra. Agora voce pode adicionar direto na lista.
-              </p>
-              <div className="mt-5 grid gap-3">
-                {suggestedQuery.isLoading ? (
-                  <div className="rounded-2xl bg-secondary/70 px-4 py-5 text-sm text-muted">
-                    Carregando itens sugeridos...
-                  </div>
-                ) : (suggestedQuery.data ?? []).length ? (
-                  (suggestedQuery.data ?? []).map((item) => (
-                    <div
-                      key={item.inventory_id}
-                      className="flex items-start justify-between gap-3 rounded-2xl bg-secondary/70 px-4 py-4"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold text-ink">{item.product.name}</p>
-                        <p className="mt-1 text-sm text-muted">
-                          {item.product.category} · atual {formatQuantity(item.current_qty)} · minimo{" "}
-                          {formatQuantity(item.min_qty)}
-                        </p>
-                      </div>
-                      <Button
-                        isLoading={addSuggestedMutation.isPending}
-                        size="sm"
-                        variant="outline"
-                        onClick={() => addSuggestedItem(item)}
-                      >
-                        Adicionar
-                      </Button>
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-2xl bg-secondary/70 px-4 py-5 text-sm text-muted">
-                    Nenhuma reposicao sugerida agora.
-                  </div>
-                )}
+          <SectionCard>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-2xl font-bold">Fluxo da lista</h2>
+                <p className="mt-2 text-sm text-muted">
+                  Lista atual, reposicao do estoque e historico ficam no mesmo scroll.
+                </p>
               </div>
-            </SectionCard>
+              <Button
+                className="text-red-600 hover:bg-red-50"
+                disabled={!shoppingListQuery.data?.length}
+                isLoading={clearListMutation.isPending}
+                variant="ghost"
+                onClick={() => setIsClearListModalOpen(true)}
+              >
+                Limpar lista
+              </Button>
+            </div>
 
-            <SectionCard>
-              <div className="flex items-start justify-between gap-3">
+            <div className="mt-6 grid gap-4">
+              <div className="flex flex-col gap-1 border-b border-border/10 pb-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <h2 className="text-2xl font-bold">Lista atual</h2>
-                  <p className="mt-2 text-sm text-muted">
+                  <h3 className="text-lg font-bold text-ink">Lista atual</h3>
+                  <p className="text-sm text-muted">
                     {shoppingListQuery.isLoading
                       ? "Carregando itens..."
-                      : `${activeItems.length} item(ns) preparado(s) para a compra · estimativa ${formatCurrency(activeEstimatedTotal)}.`}
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    Edite ou remova sem sair da tela. O total previsto ja considera quantidade x preco.
+                      : `${activeItems.length} item(ns) preparado(s) · estimativa ${formatCurrency(activeEstimatedTotal)}.`}
                   </p>
                 </div>
-                <Button
-                  disabled={!shoppingListQuery.data?.length}
-                  isLoading={clearListMutation.isPending}
-                  variant="ghost"
-                  className="text-red-600 hover:bg-red-50"
-                  onClick={() => setIsClearListModalOpen(true)}
-                >
-                  Limpar lista
-                </Button>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+                  Edicao livre
+                </p>
               </div>
 
-              <div className="mt-5 grid gap-3">
-                {shoppingListQuery.isLoading ? (
-                  <div className="rounded-2xl bg-secondary/70 px-4 py-5 text-sm text-muted">
-                    Carregando sua lista...
-                  </div>
-                ) : visibleItems.length ? (
-                  activeItems.map((item) => (
-                    <ShoppingListItemCard
-                      key={item.shopping_list_item_id}
-                      draft={editingDraft}
-                      isBusy={pendingItemIds.includes(item.shopping_list_item_id)}
-                      isEditing={editingId === item.shopping_list_item_id}
-                      item={item}
-                      onBeginEdit={() => beginEdit(item)}
-                      onCancelEdit={() => {
-                        setEditingId(null);
-                        setEditingCategoryMode(null);
-                      }}
-                      onChangeDraft={changeEditingDraft}
-                      onDelete={() => deleteMutation.mutate(item.shopping_list_item_id)}
-                      onSave={() => saveItem(item.shopping_list_item_id)}
-                      categoryIsAuto={editingCategoryMode === "auto"}
-                    />
-                  ))
-                ) : (
-                  <div className="rounded-2xl bg-secondary/70 px-4 py-5 text-sm text-muted">
-                    Sua lista persistida ainda esta vazia.
-                  </div>
-                )}
-              </div>
-            </SectionCard>
+              {shoppingListQuery.isLoading ? (
+                <div className="rounded-lg bg-secondary/70 px-4 py-5 text-sm text-muted">
+                  Carregando sua lista...
+                </div>
+              ) : activeItems.length ? (
+                activeItems.map((item) => (
+                  <ShoppingListItemCard
+                    key={item.shopping_list_item_id}
+                    draft={editingDraft}
+                    isBusy={pendingItemIds.includes(item.shopping_list_item_id)}
+                    isEditing={editingId === item.shopping_list_item_id}
+                    item={item}
+                    onBeginEdit={() => beginEdit(item)}
+                    onCancelEdit={() => {
+                      setEditingId(null);
+                      setEditingCategoryMode(null);
+                    }}
+                    onChangeDraft={changeEditingDraft}
+                    onDelete={() => deleteMutation.mutate(item.shopping_list_item_id)}
+                    onSave={() => saveItem(item.shopping_list_item_id)}
+                    categoryIsAuto={editingCategoryMode === "auto"}
+                  />
+                ))
+              ) : (
+                <div className="rounded-lg bg-secondary/70 px-4 py-5 text-sm text-muted">
+                  Sua lista persistida ainda esta vazia.
+                </div>
+              )}
 
-            <SectionCard>
-              <h2 className="text-2xl font-bold">Ja comprados antes</h2>
-              <p className="mt-2 text-sm text-muted">
-                Use o ultimo preco conhecido para montar uma previsao mais realista.
-              </p>
-              <div className="mt-5 grid gap-3">
-                {catalogQuery.isLoading ? (
-                  <div className="rounded-2xl bg-secondary/70 px-4 py-5 text-sm text-muted">
-                    Carregando historico de produtos...
-                  </div>
-                ) : catalogQuery.data?.length ? (
-                  catalogQuery.data.map((item) => (
-                    <div
-                      key={`${item.canonical_name}-${item.last_purchased_at}`}
-                      className="flex items-start justify-between gap-3 rounded-2xl bg-secondary/70 px-4 py-4"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold text-ink">{item.name}</p>
-                        <p className="mt-1 text-sm text-muted">
-                          {item.category ?? "Sem categoria"} · {item.purchase_count} compras · ultima{" "}
-                          {formatDateTime(item.last_purchased_at)}
-                        </p>
-                        <p className="mt-1 text-xs text-muted">
-                          Ultimo preco:{" "}
-                          {item.last_unit_price ? formatCurrency(toNumber(item.last_unit_price)) : "nao informado"}
-                        </p>
-                      </div>
-                      <Button
-                        isLoading={createMutation.isPending}
-                        variant="ghost"
-                        onClick={() => addExistingItem(item)}
-                      >
-                        Adicionar
-                      </Button>
+              <div className="mt-4 flex flex-col gap-1 border-b border-border/10 pb-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-ink">Reposicao do estoque</h3>
+                  <p className="text-sm text-muted">
+                    Itens em status de compra, limitados aos 3 primeiros para manter o scroll leve.
+                  </p>
+                </div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+                  {restockSuggestions.length} de {(suggestedQuery.data ?? []).length}
+                </p>
+              </div>
+
+              {suggestedQuery.isLoading ? (
+                <div className="rounded-lg bg-secondary/70 px-4 py-5 text-sm text-muted">
+                  Carregando itens sugeridos...
+                </div>
+              ) : restockSuggestions.length ? (
+                restockSuggestions.map((item) => (
+                  <div
+                    key={item.inventory_id}
+                    className="flex items-start justify-between gap-3 rounded-lg bg-secondary/70 px-4 py-4"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-ink">{item.product.name}</p>
+                      <p className="mt-1 text-sm text-muted">
+                        {item.product.category} · atual {formatQuantity(item.current_qty)} · minimo{" "}
+                        {formatQuantity(item.min_qty)}
+                      </p>
                     </div>
-                  ))
-                ) : (
-                  <div className="rounded-2xl bg-secondary/70 px-4 py-5 text-sm text-muted">
-                    Nenhum item comprado anteriormente encontrado.
+                    <Button
+                      isLoading={addSuggestedMutation.isPending}
+                      size="sm"
+                      variant="outline"
+                      onClick={() => addSuggestedItem(item)}
+                    >
+                      Adicionar
+                    </Button>
                   </div>
-                )}
+                ))
+              ) : (
+                <div className="rounded-lg bg-secondary/70 px-4 py-5 text-sm text-muted">
+                  Nenhuma reposicao sugerida agora.
+                </div>
+              )}
+
+              <div className="mt-4 flex flex-col gap-1 border-b border-border/10 pb-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-ink">Ja comprados antes</h3>
+                  <p className="text-sm text-muted">
+                    Historico recente limitado a 5 itens para previsao rapida de preco.
+                  </p>
+                </div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+                  {historyPreviewItems.length} de {catalogQuery.data?.length ?? 0}
+                </p>
               </div>
-            </SectionCard>
-          </div>
+
+              {catalogQuery.isLoading ? (
+                <div className="rounded-lg bg-secondary/70 px-4 py-5 text-sm text-muted">
+                  Carregando historico de produtos...
+                </div>
+              ) : historyPreviewItems.length ? (
+                historyPreviewItems.map((item) => (
+                  <div
+                    key={`${item.canonical_name || item.name}-${item.last_purchased_at}`}
+                    className="flex items-start justify-between gap-3 rounded-lg bg-secondary/70 px-4 py-4"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-ink">{getCatalogItemName(item)}</p>
+                      <p className="mt-1 text-sm text-muted">
+                        {item.category ?? "Sem categoria"} · {item.purchase_count} compras · ultima{" "}
+                        {formatDateTime(item.last_purchased_at)}
+                      </p>
+                      <p className="mt-1 text-xs text-muted">
+                        Ultimo preco:{" "}
+                        {item.last_unit_price ? formatCurrency(toNumber(item.last_unit_price)) : "nao informado"}
+                      </p>
+                    </div>
+                    <Button
+                      isLoading={createMutation.isPending}
+                      variant="ghost"
+                      onClick={() => addExistingItem(item)}
+                    >
+                      Adicionar
+                    </Button>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-lg bg-secondary/70 px-4 py-5 text-sm text-muted">
+                  Nenhum item comprado anteriormente encontrado.
+                </div>
+              )}
+            </div>
+          </SectionCard>
         </>
       )}
 
