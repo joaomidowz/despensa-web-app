@@ -7,6 +7,7 @@ import { PasteListImporter } from "../../components/carrinho/PasteListImporter";
 import { ShoppingListHistorySuggestions } from "../../components/carrinho/ShoppingListHistorySuggestions";
 import { ShoppingListItemCard } from "../../components/carrinho/ShoppingListItemCard";
 import { ShoppingModeEditor } from "../../components/carrinho/ShoppingModeEditor";
+import { ShoppingListRecommendations } from "../../components/carrinho/ShoppingListRecommendations";
 import { ShoppingListSaveFab } from "../../components/carrinho/ShoppingListSaveFab";
 import {
   DraftState,
@@ -49,6 +50,12 @@ import {
   buildShoppingHistoryIndex,
   findShoppingHistorySuggestions,
 } from "../../lib/shopping-list/historySuggestions";
+import {
+  buildPurchaseRecommendations,
+  loadPurchaseRecommendationFeedback,
+  type PurchaseRecommendationFeedbackAction,
+  rememberPurchaseRecommendationFeedback,
+} from "../../lib/shopping-list/purchaseRecommendations";
 import { clearPendingShoppingPurchase } from "../../lib/shopping-list/purchaseSession";
 import { formatCurrency, formatDateTime, formatQuantity } from "../../lib/utils/formatters";
 
@@ -193,9 +200,14 @@ export function ShoppingListPage() {
     items: [] as ManualCheckoutItem[],
   });
   const [categoryOverrideRevision, setCategoryOverrideRevision] = useState(0);
+  const [recommendationFeedbackRevision, setRecommendationFeedbackRevision] = useState(0);
   const categoryOverrides = useMemo(
     () => loadCategoryOverrides(user?.household_id),
     [categoryOverrideRevision, user?.household_id],
+  );
+  const recommendationFeedback = useMemo(
+    () => loadPurchaseRecommendationFeedback(user?.household_id),
+    [recommendationFeedbackRevision, user?.household_id],
   );
 
   const suggestedQuery = useQuery({
@@ -419,6 +431,16 @@ export function ShoppingListPage() {
     [visibleItems],
   );
 
+  const purchaseRecommendations = useMemo(
+    () =>
+      buildPurchaseRecommendations(
+        catalogQuery.data ?? [],
+        baseShoppingListItems.items,
+        recommendationFeedback,
+      ),
+    [baseShoppingListItems.items, catalogQuery.data, recommendationFeedback],
+  );
+
   const activeEstimatedTotal = useMemo(
     () => activeItems.reduce((sum, item) => sum + (getEstimatedLineTotal(item) ?? 0), 0),
     [activeItems],
@@ -504,6 +526,20 @@ export function ShoppingListPage() {
     );
     if (nextOverrides) {
       setCategoryOverrideRevision((current) => current + 1);
+    }
+  }
+
+  function rememberRecommendationFeedback(
+    item: ShoppingListCatalogItemResponse,
+    action: PurchaseRecommendationFeedbackAction,
+  ) {
+    const nextFeedback = rememberPurchaseRecommendationFeedback(
+      user?.household_id,
+      item,
+      action,
+    );
+    if (nextFeedback) {
+      setRecommendationFeedbackRevision((current) => current + 1);
     }
   }
 
@@ -794,6 +830,7 @@ export function ShoppingListPage() {
       await queryClient.invalidateQueries({ queryKey: ["shopping-list", "items"] });
       await queryClient.invalidateQueries({ queryKey: ["inventory", "list"] });
       await queryClient.invalidateQueries({ queryKey: ["inventory", "shopping-list"] });
+      await queryClient.invalidateQueries({ queryKey: ["shopping-list", "catalog"] });
       await queryClient.invalidateQueries({ queryKey: ["overview"] });
       await queryClient.invalidateQueries({ queryKey: ["receipts", "list"] });
       clearPendingShoppingPurchase();
@@ -839,6 +876,16 @@ export function ShoppingListPage() {
       desired_qty: 1,
       estimated_unit_price: item.last_unit_price ? toNumber(item.last_unit_price) : null,
     });
+  }
+
+  function snoozeRecommendation(item: ShoppingListCatalogItemResponse) {
+    rememberRecommendationFeedback(item, "later");
+    showToast("Recomendacao pausada por alguns dias.", "info");
+  }
+
+  function dismissRecommendation(item: ShoppingListCatalogItemResponse) {
+    rememberRecommendationFeedback(item, "dismissed");
+    showToast("Recomendacao ocultada.", "info");
   }
 
   function importPastedList(items: ParsedShoppingListItem[]) {
@@ -1297,9 +1344,31 @@ export function ShoppingListPage() {
             onImport={importPastedList}
           />
 
+          <SectionCard>
+            <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-2xl font-bold">Recomendados para hoje</h2>
+                <p className="mt-2 text-sm text-muted">
+                  Ranking por historico, frequencia, recencia e contexto da lista atual.
+                </p>
+              </div>
+              <p className="text-sm font-semibold text-tertiary">
+                {purchaseRecommendations.length} sugestao(oes)
+              </p>
+            </div>
+            <ShoppingListRecommendations
+              isAdding={createMutation.isPending}
+              isLoading={catalogQuery.isLoading}
+              recommendations={purchaseRecommendations}
+              onAdd={addExistingItem}
+              onDismiss={dismissRecommendation}
+              onSnooze={snoozeRecommendation}
+            />
+          </SectionCard>
+
           <div className="grid gap-4 xl:grid-cols-3">
             <SectionCard>
-              <h2 className="text-2xl font-bold">Recomendados pelo sistema</h2>
+              <h2 className="text-2xl font-bold">Reposicao do estoque</h2>
               <p className="mt-2 text-sm text-muted">
                 Itens do estoque que ja entraram em status de compra. Agora voce pode adicionar direto na lista.
               </p>
@@ -1537,6 +1606,7 @@ export function ShoppingListPage() {
           <ShoppingListScanCheckout
             checkedItems={checkedItems}
             onComplete={() => {
+              void queryClient.invalidateQueries({ queryKey: ["shopping-list", "catalog"] });
               clearPendingShoppingPurchase();
               setCheckoutChoice(null);
               setIsShoppingMode(false);
