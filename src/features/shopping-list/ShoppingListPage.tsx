@@ -9,6 +9,7 @@ import { ShoppingListItemCard } from "../../components/carrinho/ShoppingListItem
 import { ShoppingModeEditor } from "../../components/carrinho/ShoppingModeEditor";
 import { ShoppingListRecommendations } from "../../components/carrinho/ShoppingListRecommendations";
 import { ShoppingListSaveFab } from "../../components/carrinho/ShoppingListSaveFab";
+import { ShoppingListTemplates } from "../../components/carrinho/ShoppingListTemplates";
 import {
   DraftState,
   ManualCheckoutItem,
@@ -57,6 +58,14 @@ import {
   rememberPurchaseRecommendationFeedback,
 } from "../../lib/shopping-list/purchaseRecommendations";
 import { clearPendingShoppingPurchase } from "../../lib/shopping-list/purchaseSession";
+import {
+  buildTemplateItemsFromShoppingList,
+  deleteShoppingTemplate,
+  loadShoppingTemplates,
+  saveShoppingTemplate,
+  type ShoppingTemplate,
+  type ShoppingTemplateItem,
+} from "../../lib/shopping-list/shoppingTemplates";
 import { formatCurrency, formatDateTime, formatQuantity } from "../../lib/utils/formatters";
 
 type CheckoutChoice = "manual" | "scan" | null;
@@ -166,6 +175,10 @@ function getCatalogItemName(item: ShoppingListCatalogItemResponse) {
   return item.name || item.canonical_name;
 }
 
+function getDefaultTemplateName() {
+  return `Compra ${new Intl.DateTimeFormat("pt-BR").format(new Date())}`;
+}
+
 export function ShoppingListPage() {
   const { token, user } = useAuth();
   const { showToast } = useToast();
@@ -201,6 +214,10 @@ export function ShoppingListPage() {
   });
   const [categoryOverrideRevision, setCategoryOverrideRevision] = useState(0);
   const [recommendationFeedbackRevision, setRecommendationFeedbackRevision] = useState(0);
+  const [templateRevision, setTemplateRevision] = useState(0);
+  const [templateName, setTemplateName] = useState("");
+  const [templateDescription, setTemplateDescription] = useState("");
+  const [templatePendingId, setTemplatePendingId] = useState<string | null>(null);
   const categoryOverrides = useMemo(
     () => loadCategoryOverrides(user?.household_id),
     [categoryOverrideRevision, user?.household_id],
@@ -208,6 +225,10 @@ export function ShoppingListPage() {
   const recommendationFeedback = useMemo(
     () => loadPurchaseRecommendationFeedback(user?.household_id),
     [recommendationFeedbackRevision, user?.household_id],
+  );
+  const shoppingTemplates = useMemo(
+    () => loadShoppingTemplates(user?.household_id),
+    [templateRevision, user?.household_id],
   );
 
   const suggestedQuery = useQuery({
@@ -698,6 +719,58 @@ export function ShoppingListPage() {
     },
   });
 
+  const applyTemplateMutation = useMutation({
+    mutationFn: async (template: ShoppingTemplate) => {
+      const payloads = template.items
+        .map((item) => buildTemplateItemPayload(item))
+        .filter((payload): payload is CreateShoppingListItemRequest => Boolean(payload));
+      const results = await Promise.allSettled(
+        payloads.map((payload) =>
+          apiClient<ShoppingListItemResponse>("/shopping-list/items", {
+            method: "POST",
+            token,
+            body: payload,
+          }),
+        ),
+      );
+      const createdItems = results
+        .filter(
+          (result): result is PromiseFulfilledResult<ShoppingListItemResponse> =>
+            result.status === "fulfilled",
+        )
+        .map((result) => result.value);
+      const failedCount = template.items.length - createdItems.length;
+
+      return { createdItems, failedCount, templateName: template.name };
+    },
+    onMutate: (template) => {
+      setTemplatePendingId(template.id);
+    },
+    onSuccess: ({ createdItems, failedCount, templateName }) => {
+      if (createdItems.length) {
+        replaceShoppingListItems((current) => [...createdItems.reverse(), ...current]);
+      }
+
+      if (createdItems.length && !failedCount) {
+        showToast(`Lista salva ${templateName} carregada na lista.`, "success");
+        return;
+      }
+
+      if (createdItems.length && failedCount) {
+        showToast(
+          `Lista salva carregada parcialmente. ${failedCount} item(ns) nao entraram.`,
+          "info",
+        );
+        return;
+      }
+
+      showToast("Nao foi possivel carregar esta lista salva.", "error");
+    },
+    onSettled: () => {
+      setTemplatePendingId(null);
+    },
+  });
+
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: UpdateShoppingListItemRequest }) =>
       apiClient<ShoppingListItemResponse>(`/shopping-list/items/${id}`, {
@@ -886,6 +959,70 @@ export function ShoppingListPage() {
   function dismissRecommendation(item: ShoppingListCatalogItemResponse) {
     rememberRecommendationFeedback(item, "dismissed");
     showToast("Recomendacao ocultada.", "info");
+  }
+
+  function buildTemplateItemPayload(
+    item: ShoppingTemplateItem,
+  ): CreateShoppingListItemRequest | null {
+    const name = item.name.trim();
+    if (!name || item.desired_qty <= 0) return null;
+
+    const historyMatch = findShoppingHistorySuggestions(historyIndex, name, 1)[0];
+    const categorySuggestion = suggestCategoryForProduct(name, categoryOverrides);
+    const historyPrice = toNumber(historyMatch?.last_unit_price);
+    const estimatedUnitPrice =
+      item.estimated_unit_price ??
+      (Number.isNaN(historyPrice) ? null : historyPrice);
+
+    return {
+      name,
+      category: item.category ?? historyMatch?.category ?? categorySuggestion?.category ?? null,
+      notes: item.notes ?? null,
+      desired_qty: item.desired_qty,
+      estimated_unit_price: estimatedUnitPrice,
+    };
+  }
+
+  function saveCurrentListAsTemplate() {
+    const items = buildTemplateItemsFromShoppingList(activeItems);
+    if (!items.length) {
+      showToast("Adicione itens na lista antes de salvar uma lista salva.", "error");
+      return;
+    }
+
+    const savedTemplate = saveShoppingTemplate(user?.household_id, {
+      name: templateName.trim() || getDefaultTemplateName(),
+      description: templateDescription,
+      items,
+    });
+
+    if (!savedTemplate) {
+      showToast("Nao foi possivel salvar a lista salva.", "error");
+      return;
+    }
+
+    setTemplateName("");
+    setTemplateDescription("");
+    setTemplateRevision((current) => current + 1);
+    showToast("Lista salva.", "success");
+  }
+
+  function applyShoppingTemplate(template: ShoppingTemplate) {
+    if (!template.items.length) {
+      showToast("Esta lista salva nao possui itens.", "error");
+      return;
+    }
+    applyTemplateMutation.mutate(template);
+  }
+
+  function deleteSavedTemplate(templateId: string) {
+    const nextTemplates = deleteShoppingTemplate(user?.household_id, templateId);
+    if (!nextTemplates) {
+      showToast("Nao foi possivel apagar a lista salva.", "error");
+      return;
+    }
+    setTemplateRevision((current) => current + 1);
+    showToast("Lista salva apagada.", "info");
   }
 
   function importPastedList(items: ParsedShoppingListItem[]) {
@@ -1363,6 +1500,32 @@ export function ShoppingListPage() {
               onAdd={addExistingItem}
               onDismiss={dismissRecommendation}
               onSnooze={snoozeRecommendation}
+            />
+          </SectionCard>
+
+          <SectionCard>
+            <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-2xl font-bold">Listas Salvas</h2>
+                <p className="mt-2 text-sm text-muted">
+                  Use listas pre feitas para comecar uma compra pronta para edicao.
+                </p>
+              </div>
+              <p className="text-sm font-semibold text-tertiary">
+                {shoppingTemplates.length} lista(s) salva(s)
+              </p>
+            </div>
+            <ShoppingListTemplates
+              canSave={Boolean(activeItems.length)}
+              description={templateDescription}
+              isApplyingId={templatePendingId}
+              name={templateName}
+              templates={shoppingTemplates}
+              onApply={applyShoppingTemplate}
+              onChangeDescription={setTemplateDescription}
+              onChangeName={setTemplateName}
+              onDelete={deleteSavedTemplate}
+              onSave={saveCurrentListAsTemplate}
             />
           </SectionCard>
 
